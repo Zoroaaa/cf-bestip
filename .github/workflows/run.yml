@@ -2,17 +2,8 @@ name: CF IP Auto Selector
 
 on:
   schedule:
-    - cron: "0 3 * * *"   # 每天 UTC 03:00
+    - cron: "0 3 * * *"
   workflow_dispatch:
-
-# 防止手动 + 定时同时跑
-concurrency:
-  group: cf-ip-selector
-  cancel-in-progress: true
-
-# 关键：允许 Actions 写仓库
-permissions:
-  contents: write
 
 jobs:
   run:
@@ -22,34 +13,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
+      - name: Install dependencies
+        run: |
+          pip install requests
 
-      - name: Run IP selector
+      - name: Run script
         run: |
           python ip.py
-
-      # 防止空结果把 gh-pages 覆盖掉
-      - name: Validate output
-        run: |
-          if [ ! -s ip.txt ]; then
-            echo "ip.txt is empty, abort publish"
-            exit 1
-          fi
-
-      # 建议：统一放到 docs 目录再发布
-      - name: Prepare Pages content
-        run: |
-          mkdir -p docs
-          mv ip.txt docs/
-          if [ -f ip.json ]; then mv ip.json docs/; fi
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
           publish_branch: gh-pages
-          publish_dir: docs
-          force_orphan: true
