@@ -15,7 +15,7 @@ CF_CIDRS = [
 ]
 
 SAMPLE_SIZE = 512          # 抽样 IP 数
-TRACE_DOMAIN = "cftrace.yourdomain.com"  # 你的 Worker 域名
+TRACE_DOMAIN = "sptest.ittool.pp.ua"  # 你的 Worker 域名
 TIMEOUT = 4                # curl 超时（秒）
 MAX_WORKERS = 25
 LATENCY_LIMIT = 800        # 最大可接受延迟 ms
