@@ -1,39 +1,34 @@
 import subprocess
 import random
 import ipaddress
-import time
 import requests
 import os
 import json
-import math
-from datetime import datetime, timedelta
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 
 # =========================
-# 参数区
+# 基础参数
 # =========================
 
 CF_IPS_V4_URL = "https://www.cloudflare.com/ips-v4"
 
-TRACE_DOMAINS = [
-    "sptest.ittool.pp.ua",
-    "sptest1.ittool.pp.ua",
-    "sptest2.ittool.pp.ua",
-]
+TRACE_DOMAINS = {
+    "v0": "sptest.ittool.pp.ua",
+    "v1": "sptest1.ittool.pp.ua",
+    "v2": "sptest2.ittool.pp.ua",
+}
 
 SAMPLE_SIZE = 800
 TIMEOUT = 4
+CONNECT_TIMEOUT = 2
 MAX_WORKERS = 30
 LATENCY_LIMIT = 800
 
-EMA_ALPHA = 0.35
-DAY_MATURE = 7
-FAIL_BASE = 0.85
-STATE_KEEP_DAYS = 7
-
 OUTPUT_DIR = "public"
-STATE_DIR = "data"
+DATA_DIR = "data"
 
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 
@@ -44,50 +39,48 @@ REGION_WHITELIST = {
 }
 
 MAX_OUTPUT_PER_REGION = 32
+HISTORY_DAYS = 7
 
 # =========================
-# Cloudflare Colo → Region
+# COLO → Region
 # =========================
 
 COLO_MAP = {
     "HKG": "HK", "SIN": "SG", "NRT": "JP", "KIX": "JP",
     "ICN": "KR", "TPE": "TW",
     "SYD": "AU", "MEL": "AU",
-    "LAX": "US", "SFO": "US", "SEA": "US", "ORD": "US",
+
+    "LAX": "US", "SJC": "US", "SFO": "US",
+    "SEA": "US", "ORD": "US", "DFW": "US",
+    "ATL": "US", "IAD": "US", "EWR": "US",
+    "JFK": "US", "BOS": "US", "MIA": "US",
+
     "FRA": "DE", "MUC": "DE",
     "LHR": "UK", "LGW": "UK",
+
     "YYZ": "CA", "YVR": "CA",
 }
 
 # =========================
+# 工具函数
+# =========================
 
 def ensure_dirs():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    os.makedirs(STATE_DIR, exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
 
-def cleanup_old_states(today):
-    for fn in os.listdir(STATE_DIR):
-        if fn.startswith("ip_state_") and fn.endswith(".json"):
-            date_str = fn.replace("ip_state_", "").replace(".json", "")
-            try:
-                file_date = datetime.strptime(date_str, "%Y-%m-%d")
-                if (today - file_date).days >= STATE_KEEP_DAYS:
-                    os.remove(os.path.join(STATE_DIR, fn))
-            except ValueError:
-                pass
-
-def load_prev_state(today):
-    prev_day = today - timedelta(days=1)
-    fn = f"{STATE_DIR}/ip_state_{prev_day.strftime('%Y-%m-%d')}.json"
-    if os.path.exists(fn):
-        with open(fn, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_today_state(today, state):
-    fn = f"{STATE_DIR}/ip_state_{today.strftime('%Y-%m-%d')}.json"
-    with open(fn, "w") as f:
-        json.dump(state, f, indent=2)
+def cleanup_old_history():
+    now = datetime.utcnow()
+    for fn in os.listdir(DATA_DIR):
+        if not fn.startswith("ip_raw_") or not fn.endswith(".json"):
+            continue
+        try:
+            date_str = fn.replace("ip_raw_", "").replace(".json", "")
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            if now - dt > timedelta(days=HISTORY_DAYS):
+                os.remove(os.path.join(DATA_DIR, fn))
+        except Exception:
+            continue
 
 # =========================
 
@@ -114,143 +107,136 @@ def weighted_random_ips(cidrs, total):
     random.shuffle(result)
     return result[:total]
 
-def test_ip(ip, domain):
+def curl_test(ip, domain):
     try:
         cmd = [
-            "curl", "-sI",
+            "curl",
+            "-o", "/dev/null",
+            "-s",
+            "-w", "%{time_connect} %{time_appconnect} %{http_code}",
+            "--connect-timeout", str(CONNECT_TIMEOUT),
+            "--max-time", str(TIMEOUT),
             "--resolve", f"{domain}:443:{ip}",
-            f"https://{domain}",
-            "--max-time", str(TIMEOUT)
+            f"https://{domain}"
         ]
-        start = time.time()
-        out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
-        latency = int((time.time() - start) * 1000)
 
-        if latency > LATENCY_LIMIT:
+        out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
+        tc, ta, code = out.decode().strip().split()
+        latency = int((float(tc) + float(ta)) * 1000)
+
+        if latency > LATENCY_LIMIT or code == "000":
             return None
 
-        headers = out.decode(errors="ignore").lower()
-        ray = None
-        for line in headers.splitlines():
-            if line.startswith("cf-ray"):
-                ray = line.split(":")[1].strip()
+        hdr = subprocess.check_output(
+            ["curl", "-sI", "--resolve", f"{domain}:443:{ip}", f"https://{domain}"],
+            timeout=TIMEOUT
+        ).decode(errors="ignore").lower()
 
+        ray = next((l.split(":")[1].strip() for l in hdr.splitlines() if l.startswith("cf-ray")), None)
         if not ray:
             return None
 
         colo = ray.split("-")[-1].upper()
-        region = COLO_MAP.get(colo, "OTHER")
-
-        latency_score = max(0.0, 1 - latency / LATENCY_LIMIT)
+        region = COLO_MAP.get(colo, "UNMAPPED")
 
         return {
             "ip": str(ip),
             "domain": domain,
-            "latency": latency,
-            "latency_score": latency_score,
+            "view": domain,
             "colo": colo,
-            "region": region
+            "region": region,
+            "latency": latency
         }
     except Exception:
         return None
 
-def calc_stable_score(ema, days, fail):
-    return round(
-        ema
-        * min(1.0, days / DAY_MATURE)
-        * math.pow(FAIL_BASE, fail),
-        4
-    )
+def score_ip(latencies, total_views):
+    p = len(latencies)
+    if p < 2:
+        return 0
 
+    stability = p / total_views
+    consistency = 1 - (max(latencies) - min(latencies)) / LATENCY_LIMIT
+    consistency = max(consistency, 0.3)
+    latency_score = 1 / (1 + min(latencies) / 100)
+
+    return round(stability * consistency * latency_score, 4)
+
+# =========================
+# 主流程
 # =========================
 
 def main():
-    today = datetime.utcnow()
     ensure_dirs()
-    cleanup_old_states(today)
-
-    prev_state = load_prev_state(today)
+    cleanup_old_history()
 
     cidrs = fetch_cf_ipv4_cidrs()
     ips = weighted_random_ips(cidrs, SAMPLE_SIZE)
 
-    raw = []
+    raw_results = []
+
     with ThreadPoolExecutor(MAX_WORKERS) as pool:
-        for domain in TRACE_DOMAINS:
-            for r in pool.map(lambda x: test_ip(x, domain), ips):
-                if r:
-                    raw.append(r)
+        for batch in pool.map(lambda ip: [r for d in TRACE_DOMAINS.values() if (r := curl_test(ip, d))], ips):
+            raw_results.extend(batch)
 
-    views = defaultdict(list)
-    for r in raw:
-        views[r["ip"]].append(r)
+    # === 保存历史 raw ===
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    with open(f"{DATA_DIR}/ip_raw_{today}.json", "w") as f:
+        json.dump(raw_results, f, indent=2)
 
-    today_state = {}
-    seen_ips = set()
+    # === 聚合评分 ===
+    ip_map = defaultdict(list)
+    for r in raw_results:
+        ip_map[r["ip"]].append(r)
 
-    for ip, vlist in views.items():
-        seen_ips.add(ip)
-
-        avg = sum(v["latency_score"] for v in vlist) / len(vlist)
-        lats = [v["latency"] for v in vlist]
-        std = (sum((x - sum(lats)/len(lats))**2 for x in lats) / len(lats))**0.5
-        score = round(avg * max(0, 1 - std / LATENCY_LIMIT), 4)
-
-        prev = prev_state.get(ip)
-        if prev:
-            ema = round(EMA_ALPHA * score + (1 - EMA_ALPHA) * prev["ema_score"], 4)
-            days = prev["days"] + 1
-            fail = max(0, prev["fail_count"] - 1)
-        else:
-            ema = score
-            days = 1
-            fail = 0
-
-        best = min(vlist, key=lambda x: x["latency"])
-
-        today_state[ip] = {
-            "ema_score": ema,
-            "last_score": score,
-            "days": days,
-            "fail_count": fail,
-            "stable_score": calc_stable_score(ema, days, fail),
-            "region": best["region"],
-            "colo": best["colo"]
-        }
-
-    for ip, prev in prev_state.items():
-        if ip not in seen_ips:
-            fail = prev["fail_count"] + 1
-            today_state[ip] = {
-                **prev,
-                "fail_count": fail,
-                "stable_score": calc_stable_score(prev["ema_score"], prev["days"], fail)
-            }
-
-    save_today_state(today, today_state)
-
-    stable_sorted = sorted(
-        today_state.items(),
-        key=lambda x: x[1]["stable_score"],
-        reverse=True
-    )
-
-    with open(f"{OUTPUT_DIR}/ip_stable.json", "w") as f:
-        json.dump(
-            [{"ip": ip, **data} for ip, data in stable_sorted],
-            f, indent=2
-        )
-
+    candidates = []
     region_files = defaultdict(list)
-    for ip, data in stable_sorted:
-        if data["region"] in REGION_WHITELIST:
-            region_files[data["region"]].append(
-                f"{ip}:443#{data['region']}-{data['stable_score']}\n"
-            )
+    all_txt = []
 
-    for r, lines in region_files.items():
-        with open(f"{OUTPUT_DIR}/ip_stable_{r}.txt", "w") as f:
+    for ip, items in ip_map.items():
+        latencies = [x["latency"] for x in items]
+        score = score_ip(latencies, len(TRACE_DOMAINS))
+        if score <= 0:
+            continue
+
+        best = min(items, key=lambda x: x["latency"])
+
+        node = {
+            "ip": ip,
+            "port": random.choice(HTTPS_PORTS),
+            "region": best["region"],
+            "colo": best["colo"],
+            "latencies": latencies,
+            "score": score
+        }
+        candidates.append(node)
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+
+    for n in candidates:
+        line = f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]}\n'
+        all_txt.append(line)
+        if n["region"] in REGION_WHITELIST:
+            region_files[n["region"]].append(line)
+
+    with open(f"{OUTPUT_DIR}/ip_all.txt", "w") as f:
+        f.writelines(all_txt)
+
+    for region, lines in region_files.items():
+        with open(f"{OUTPUT_DIR}/ip_{region}.txt", "w") as f:
             f.writelines(lines[:MAX_OUTPUT_PER_REGION])
+
+    with open(f"{OUTPUT_DIR}/ip_all.json", "w") as f:
+        json.dump(raw_results, f, indent=2)
+
+    with open(f"{OUTPUT_DIR}/ip_candidates.json", "w") as f:
+        json.dump({
+            "meta": {
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "views": list(TRACE_DOMAINS.values())
+            },
+            "nodes": candidates
+        }, f, indent=2)
 
     print("[*] Done.")
 
