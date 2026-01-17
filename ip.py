@@ -2,33 +2,29 @@ import subprocess
 import random
 import ipaddress
 import time
-import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import requests
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 # =========================
-# ===== 参数区（只改这里）=====
+# 基础参数
 # =========================
 
-CF_CIDRS = [
-    "104.16.0.0/12",
-    "162.159.0.0/16",
-    "172.64.0.0/13"
-]
+CF_IPS_V4_URL = "https://www.cloudflare.com/ips-v4"
+TRACE_DOMAIN = "sptest.ittool.pp.ua"   # 你的 cf-ray Worker 域名
 
-SAMPLE_SIZE = 512
-TRACE_DOMAIN = "sptest.ittool.pp.ua"
+SAMPLE_SIZE = 800          # 总抽样数量
 TIMEOUT = 4
-MAX_WORKERS = 25
+MAX_WORKERS = 30
 LATENCY_LIMIT = 800        # ms
-RETRY = 2                 # 每个 IP 测试次数（取最小）
 
 # 端口策略
-PORT_MODE = "mixed_random"  # https_fixed / http_fixed / https_random / http_random / mixed_random
-
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
-HTTP_PORTS  = [80, 8080, 8880, 2052, 2082, 2086, 2095]
 
-# cf-ray → 位置映射
+# 只生成这些地区的文件
+REGION_WHITELIST = {"HK", "SG", "JP", "KR", "US", "DE", "UK"}
+
+# cf-ray colo 映射
 COLO_MAP = {
     "HKG": "HK",
     "SIN": "SG",
@@ -43,110 +39,95 @@ COLO_MAP = {
 
 # =========================
 
-def pick_port():
-    if PORT_MODE == "https_fixed":
-        return 443
-    if PORT_MODE == "http_fixed":
-        return 80
-    if PORT_MODE == "https_random":
-        return random.choice(HTTPS_PORTS)
-    if PORT_MODE == "http_random":
-        return random.choice(HTTP_PORTS)
-    return random.choice(HTTPS_PORTS + HTTP_PORTS)
+def fetch_cf_ipv4_cidrs():
+    resp = requests.get(CF_IPS_V4_URL, timeout=10)
+    resp.raise_for_status()
+    return [line.strip() for line in resp.text.splitlines() if line.strip()]
 
-def random_ips(cidr, count):
-    net = ipaddress.ip_network(cidr)
-    base = int(net.network_address)
-    max_ip = int(net.broadcast_address)
-    return [
-        str(ipaddress.ip_address(random.randint(base + 1, max_ip - 1)))
-        for _ in range(count)
-    ]
+def weighted_random_ips(cidrs, total):
+    pools = []
+    for cidr in cidrs:
+        net = ipaddress.ip_network(cidr)
+        pools.append((net, net.num_addresses))
 
-def curl_test(ip):
-    cmd = [
-        "curl", "-sI",
-        "--resolve", f"{TRACE_DOMAIN}:443:{ip}",
-        f"https://{TRACE_DOMAIN}",
-        "--max-time", str(TIMEOUT)
-    ]
-    start = time.time()
-    out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
-    latency = int((time.time() - start) * 1000)
-    return out.decode().lower(), latency
+    total_weight = sum(w for _, w in pools)
+    result = []
+
+    for net, weight in pools:
+        count = max(1, int(total * weight / total_weight))
+        hosts = list(net.hosts())
+        if hosts:
+            result.extend(random.sample(hosts, min(count, len(hosts))))
+
+    random.shuffle(result)
+    return result[:total]
 
 def test_ip(ip):
-    best_latency = None
-    colo = None
+    try:
+        cmd = [
+            "curl", "-sI",
+            "--resolve", f"{TRACE_DOMAIN}:443:{ip}",
+            f"https://{TRACE_DOMAIN}",
+            "--max-time", str(TIMEOUT)
+        ]
+        start = time.time()
+        out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
+        latency = int((time.time() - start) * 1000)
 
-    for _ in range(RETRY):
-        try:
-            headers, latency = curl_test(ip)
+        if latency > LATENCY_LIMIT:
+            return None
 
-            if latency > LATENCY_LIMIT:
-                continue
+        headers = out.decode().lower()
+        ray = None
+        for line in headers.splitlines():
+            if line.startswith("cf-ray"):
+                ray = line.split(":")[1].strip()
 
-            for line in headers.splitlines():
-                if line.startswith("cf-ray"):
-                    ray = line.split(":")[1].strip()
-                    colo = ray.split("-")[-1].upper()
+        if not ray:
+            return None
 
-            if not colo:
-                continue
+        colo = ray.split("-")[-1].upper()
+        region = COLO_MAP.get(colo, colo)
 
-            if best_latency is None or latency < best_latency:
-                best_latency = latency
+        return ip, latency, region
 
-        except:
-            continue
-
-    if best_latency is None or not colo:
+    except:
         return None
 
-    location = COLO_MAP.get(colo, colo)
-
-    return {
-        "ip": ip,
-        "latency": best_latency,
-        "colo": colo,
-        "location": location
-    }
-
 def main():
+    print("[*] Fetching Cloudflare IPv4 ranges...")
+    cidrs = fetch_cf_ipv4_cidrs()
+
     print("[*] Sampling IPs...")
-
-    per_cidr = SAMPLE_SIZE // len(CF_CIDRS)
-    ips = []
-
-    for cidr in CF_CIDRS:
-        ips.extend(random_ips(cidr, per_cidr))
+    ips = weighted_random_ips(cidrs, SAMPLE_SIZE)
 
     print(f"[*] Testing {len(ips)} IPs...")
-
     results = []
-
     with ThreadPoolExecutor(MAX_WORKERS) as pool:
-        futures = [pool.submit(test_ip, ip) for ip in ips]
-        for f in as_completed(futures):
-            r = f.result()
+        for r in pool.map(test_ip, ips):
             if r:
                 results.append(r)
 
-    results.sort(key=lambda x: x["latency"])
+    results.sort(key=lambda x: x[1])
 
-    print(f"[*] {len(results)} IPs passed, writing outputs")
+    print(f"[*] {len(results)} IPs passed")
 
-    # === 输出 TXT（严格无空格格式）===
-    with open("ip.txt", "w") as f:
-        for r in results:
-            port = pick_port()
-            f.write(
-                f'{r["ip"]}:{port}#{r["location"]}-{r["latency"]}ms\n'
-            )
+    region_map = defaultdict(list)
 
-    # === 输出 JSON（程序友好）===
-    with open("ip.json", "w") as f:
-        json.dump(results, f, indent=2)
+    with open("ip_all.txt", "w") as f:
+        for ip, latency, region in results:
+            port = random.choice(HTTPS_PORTS)
+            line = f"{ip}:{port}#{region}-{latency}ms\n"
+            f.write(line)
+
+            if region in REGION_WHITELIST:
+                region_map[region].append(line)
+
+    for region, lines in region_map.items():
+        with open(f"ip_{region}.txt", "w") as f:
+            f.writelines(lines)
+
+    print("[*] Done.")
 
 if __name__ == "__main__":
     main()
