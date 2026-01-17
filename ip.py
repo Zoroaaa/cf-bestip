@@ -2,7 +2,8 @@ import subprocess
 import random
 import ipaddress
 import time
-from concurrent.futures import ThreadPoolExecutor
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # =========================
 # ===== 参数区（只改这里）=====
@@ -14,18 +15,20 @@ CF_CIDRS = [
     "172.64.0.0/13"
 ]
 
-SAMPLE_SIZE = 512          # 抽样 IP 数
-TRACE_DOMAIN = "sptest.ittool.pp.ua"  # 你的 Worker 域名
-TIMEOUT = 4                # curl 超时（秒）
+SAMPLE_SIZE = 512
+TRACE_DOMAIN = "sptest.ittool.pp.ua"
+TIMEOUT = 4
 MAX_WORKERS = 25
-LATENCY_LIMIT = 800        # 最大可接受延迟 ms
+LATENCY_LIMIT = 800        # ms
+RETRY = 2                 # 每个 IP 测试次数（取最小）
 
 # 端口策略
-PORT_MODE = "mixed_random"
+PORT_MODE = "mixed_random"  # https_fixed / http_fixed / https_random / http_random / mixed_random
+
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 HTTP_PORTS  = [80, 8080, 8880, 2052, 2082, 2086, 2095]
 
-# cf-ray → 位置映射（可随意增减）
+# cf-ray → 位置映射
 COLO_MAP = {
     "HKG": "HK",
     "SIN": "SG",
@@ -53,61 +56,97 @@ def pick_port():
 
 def random_ips(cidr, count):
     net = ipaddress.ip_network(cidr)
-    return random.sample(list(net.hosts()), count)
+    base = int(net.network_address)
+    max_ip = int(net.broadcast_address)
+    return [
+        str(ipaddress.ip_address(random.randint(base + 1, max_ip - 1)))
+        for _ in range(count)
+    ]
+
+def curl_test(ip):
+    cmd = [
+        "curl", "-sI",
+        "--resolve", f"{TRACE_DOMAIN}:443:{ip}",
+        f"https://{TRACE_DOMAIN}",
+        "--max-time", str(TIMEOUT)
+    ]
+    start = time.time()
+    out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
+    latency = int((time.time() - start) * 1000)
+    return out.decode().lower(), latency
 
 def test_ip(ip):
-    try:
-        cmd = [
-            "curl", "-sI",
-            "--resolve", f"{TRACE_DOMAIN}:443:{ip}",
-            f"https://{TRACE_DOMAIN}",
-            "--max-time", str(TIMEOUT)
-        ]
-        start = time.time()
-        out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
-        latency = int((time.time() - start) * 1000)
+    best_latency = None
+    colo = None
 
-        if latency > LATENCY_LIMIT:
-            return None
+    for _ in range(RETRY):
+        try:
+            headers, latency = curl_test(ip)
 
-        headers = out.decode().lower()
-        ray = None
-        for line in headers.splitlines():
-            if line.startswith("cf-ray"):
-                ray = line.split(":")[1].strip()
+            if latency > LATENCY_LIMIT:
+                continue
 
-        if not ray:
-            return None
+            for line in headers.splitlines():
+                if line.startswith("cf-ray"):
+                    ray = line.split(":")[1].strip()
+                    colo = ray.split("-")[-1].upper()
 
-        colo = ray.split("-")[-1].upper()
-        location = COLO_MAP.get(colo, colo)
+            if not colo:
+                continue
 
-        return (ip, latency, location)
+            if best_latency is None or latency < best_latency:
+                best_latency = latency
 
-    except:
+        except:
+            continue
+
+    if best_latency is None or not colo:
         return None
+
+    location = COLO_MAP.get(colo, colo)
+
+    return {
+        "ip": ip,
+        "latency": best_latency,
+        "colo": colo,
+        "location": location
+    }
 
 def main():
     print("[*] Sampling IPs...")
+
     per_cidr = SAMPLE_SIZE // len(CF_CIDRS)
     ips = []
+
     for cidr in CF_CIDRS:
-        ips += random_ips(cidr, per_cidr)
+        ips.extend(random_ips(cidr, per_cidr))
 
     print(f"[*] Testing {len(ips)} IPs...")
+
     results = []
+
     with ThreadPoolExecutor(MAX_WORKERS) as pool:
-        for r in pool.map(test_ip, ips):
+        futures = [pool.submit(test_ip, ip) for ip in ips]
+        for f in as_completed(futures):
+            r = f.result()
             if r:
                 results.append(r)
 
-    results.sort(key=lambda x: x[1])
+    results.sort(key=lambda x: x["latency"])
 
-    print(f"[*] {len(results)} IPs passed, writing ip.txt")
+    print(f"[*] {len(results)} IPs passed, writing outputs")
+
+    # === 输出 TXT（严格无空格格式）===
     with open("ip.txt", "w") as f:
-        for ip, latency, location in results:
+        for r in results:
             port = pick_port()
-            f.write(f"{ip}:{port} #{location} {latency}ms\n")
+            f.write(
+                f'{r["ip"]}:{port}#{r["location"]}-{r["latency"]}ms\n'
+            )
+
+    # === 输出 JSON（程序友好）===
+    with open("ip.json", "w") as f:
+        json.dump(results, f, indent=2)
 
 if __name__ == "__main__":
     main()
