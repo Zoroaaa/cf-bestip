@@ -1,0 +1,25 @@
+name: CF IP Auto Selector
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # 每天 UTC 03:00
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run script
+        run: |
+          python ip.py
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          publish_branch: gh-pages
