@@ -27,6 +27,8 @@ MAX_WORKERS = 30
 LATENCY_LIMIT = 800
 
 OUTPUT_DIR = "public"
+DATA_DIR = "data"
+
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 
 REGION_WHITELIST = {
@@ -36,6 +38,7 @@ REGION_WHITELIST = {
 }
 
 MAX_OUTPUT_PER_REGION = 32
+GOOD_SCORE_THRESHOLD = 0.785
 
 # =========================
 # COLO → Region
@@ -57,6 +60,8 @@ COLO_MAP = {
     "YYZ": "CA", "YVR": "CA",
 }
 
+# =========================
+# 工具函数
 # =========================
 
 def fetch_cf_ipv4_cidrs():
@@ -99,17 +104,15 @@ def curl_test(ip, domain):
 
         out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
         parts = out.decode().strip().split()
-
         if len(parts) != 3:
             return None
 
-        time_connect, time_appconnect, http_code = parts
-        latency = int((float(time_connect) + float(time_appconnect)) * 1000)
+        tc, ta, code = parts
+        latency = int((float(tc) + float(ta)) * 1000)
 
-        if latency > LATENCY_LIMIT or http_code == "000":
+        if latency > LATENCY_LIMIT or code == "000":
             return None
 
-        # 再拉一次 header 取 cf-ray
         hdr = subprocess.check_output(
             [
                 "curl", "-sI",
@@ -129,7 +132,7 @@ def curl_test(ip, domain):
             return None
 
         colo = ray.split("-")[-1].upper()
-        region = COLO_MAP.get(colo) or "UNMAPPED"
+        region = COLO_MAP.get(colo, "UNMAPPED")
 
         return {
             "ip": str(ip),
@@ -148,7 +151,6 @@ def score_ip(latencies, total_views):
         return 0
 
     S_stability = P / total_views
-
     lat_min = min(latencies)
     lat_max = max(latencies)
 
@@ -161,46 +163,27 @@ def score_ip(latencies, total_views):
 
 def test_ip(ip):
     records = []
-
     for view, domain in TRACE_DOMAINS.items():
         r = curl_test(ip, domain)
         if r:
             r["view"] = view
             records.append(r)
-
     return records
 
-def main():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    cidrs = fetch_cf_ipv4_cidrs()
-    ips = weighted_random_ips(cidrs, SAMPLE_SIZE)
-
-    raw_results = []
-
-    with ThreadPoolExecutor(MAX_WORKERS) as pool:
-        for batch in pool.map(test_ip, ips):
-            raw_results.extend(batch)
-
-    # 按 IP 聚合
+def aggregate_nodes(raw_results):
     ip_map = defaultdict(list)
     for r in raw_results:
         ip_map[r["ip"]].append(r)
 
-    candidates = []
-    all_txt = []
-    region_files = defaultdict(list)
-
+    nodes = []
     for ip, items in ip_map.items():
         latencies = [x["latency"] for x in items]
         score = score_ip(latencies, len(TRACE_DOMAINS))
-
         if score <= 0:
             continue
 
         best = min(items, key=lambda x: x["latency"])
-
-        node = {
+        nodes.append({
             "ip": ip,
             "port": random.choice(HTTPS_PORTS),
             "region": best["region"],
@@ -208,38 +191,116 @@ def main():
             "latencies": latencies,
             "views_passed": [x["view"] for x in items],
             "score": score
-        }
+        })
 
-        candidates.append(node)
+    return nodes
 
-    candidates.sort(key=lambda x: x["score"], reverse=True)
+# =========================
+# REGION 增量逻辑
+# =========================
 
-    # 输出 TXT
-    for n in candidates:
-        line = f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]}\n'
-        all_txt.append(line)
+def load_region_ips(region):
+    path = f"{OUTPUT_DIR}/ip_{region}.txt"
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return [line.split(":")[0] for line in f if line.strip()]
 
-        if n["region"] in REGION_WHITELIST:
-            region_files[n["region"]].append(line)
+def retest_region_nodes(region):
+    ips = load_region_ips(region)
+    raw = []
+    with ThreadPoolExecutor(MAX_WORKERS) as pool:
+        for batch in pool.map(test_ip, ips):
+            raw.extend(batch)
+    return aggregate_nodes(raw)
+
+def merge_region(old_nodes, new_nodes):
+    pool = {}
+    for n in old_nodes + new_nodes:
+        pool[n["ip"]] = n
+    merged = list(pool.values())
+    merged.sort(key=lambda x: x["score"], reverse=True)
+    return merged[:MAX_OUTPUT_PER_REGION]
+
+# =========================
+# 历史 & 高质量池
+# =========================
+
+def save_ip_all_history(lines):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    path = f"{DATA_DIR}/ip_all_{today}.txt"
+    with open(path, "w") as f:
+        f.writelines(lines)
+
+    files = sorted(f for f in os.listdir(DATA_DIR) if f.startswith("ip_all_"))
+    while len(files) > 7:
+        os.remove(os.path.join(DATA_DIR, files.pop(0)))
+
+def update_good_pool(nodes):
+    path = "ip_good_pool.txt"
+    pool = {}
+
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                pool[line.split(":")[0]] = line
+
+    for n in nodes:
+        if n["score"] >= GOOD_SCORE_THRESHOLD:
+            pool[n["ip"]] = f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]}\n'
+
+    with open(path, "w") as f:
+        f.writelines(pool.values())
+
+# =========================
+# 主流程
+# =========================
+
+def main():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    cidrs = fetch_cf_ipv4_cidrs()
+    ips = weighted_random_ips(cidrs, SAMPLE_SIZE)
+
+    raw = []
+    with ThreadPoolExecutor(MAX_WORKERS) as pool:
+        for batch in pool.map(test_ip, ips):
+            raw.extend(batch)
+
+    today_nodes = aggregate_nodes(raw)
+    today_nodes.sort(key=lambda x: x["score"], reverse=True)
+
+    all_lines = [
+        f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]}\n'
+        for n in today_nodes
+    ]
 
     with open(f"{OUTPUT_DIR}/ip_all.txt", "w") as f:
-        f.writelines(all_txt)
+        f.writelines(all_lines)
 
-    for region, lines in region_files.items():
+    save_ip_all_history(all_lines)
+    update_good_pool(today_nodes)
+
+    region_new = defaultdict(list)
+    for n in today_nodes:
+        if n["region"] in REGION_WHITELIST:
+            region_new[n["region"]].append(n)
+
+    for region in REGION_WHITELIST:
+        old_nodes = retest_region_nodes(region)
+        merged = merge_region(old_nodes, region_new.get(region, []))
+
         with open(f"{OUTPUT_DIR}/ip_{region}.txt", "w") as f:
-            f.writelines(lines[:MAX_OUTPUT_PER_REGION])
-
-    # 输出 JSON
-    with open(f"{OUTPUT_DIR}/ip_all.json", "w") as f:
-        json.dump(raw_results, f, indent=2)
+            for n in merged:
+                f.write(f'{n["ip"]}:{n["port"]}#{region}-score{n["score"]}\n')
 
     with open(f"{OUTPUT_DIR}/ip_candidates.json", "w") as f:
         json.dump({
             "meta": {
-                "views": list(TRACE_DOMAINS.keys()),
                 "generated_at": datetime.utcnow().isoformat() + "Z"
             },
-            "nodes": candidates
+            "nodes": today_nodes
         }, f, indent=2)
 
     print("[*] Done.")
