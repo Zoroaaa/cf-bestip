@@ -31,6 +31,9 @@ REGION_WHITELIST = {
     "TW", "AU", "CA"
 }
 
+# 每个地区最大输出数量（新增功能）
+MAX_OUTPUT_PER_REGION = 32
+
 # =========================
 # Cloudflare Colo → Region
 # =========================
@@ -119,7 +122,7 @@ def test_ip(ip):
             "region": region
         }
 
-    except:
+    except Exception:
         return None
 
 def main():
@@ -134,11 +137,11 @@ def main():
             if r:
                 results.append(r)
 
+    # 按延迟排序（非常关键）
     results.sort(key=lambda x: x["latency"])
 
     region_files = defaultdict(list)
 
-    # TXT + JSON
     all_txt = []
     for r in results:
         line = f'{r["ip"]}:{r["port"]}#{r["region"]}-{r["latency"]}ms\n'
@@ -147,13 +150,17 @@ def main():
         if r["region"] in REGION_WHITELIST:
             region_files[r["region"]].append(line)
 
+    # 全量 TXT
     with open(f"{OUTPUT_DIR}/ip_all.txt", "w") as f:
         f.writelines(all_txt)
 
+    # 按地区 TXT（新增：数量限制）
     for region, lines in region_files.items():
+        limited = lines[:MAX_OUTPUT_PER_REGION]
         with open(f"{OUTPUT_DIR}/ip_{region}.txt", "w") as f:
-            f.writelines(lines)
+            f.writelines(limited)
 
+    # 全量 JSON（不限制，便于分析）
     with open(f"{OUTPUT_DIR}/ip_all.json", "w") as f:
         json.dump(results, f, indent=2)
 
