@@ -1,64 +1,59 @@
 import subprocess
 import random
 import ipaddress
-import time
 import requests
 import os
 import json
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 # =========================
-# 参数区
+# 基础参数
 # =========================
 
 CF_IPS_V4_URL = "https://www.cloudflare.com/ips-v4"
-TRACE_DOMAIN = "sptest.ittool.pp.ua"
+
+TRACE_DOMAINS = {
+    "v0": "sptest.ittool.pp.ua",
+    "v1": "sptest1.ittool.pp.ua",
+    "v2": "sptest2.ittool.pp.ua",
+}
 
 SAMPLE_SIZE = 800
 TIMEOUT = 4
+CONNECT_TIMEOUT = 2
 MAX_WORKERS = 30
 LATENCY_LIMIT = 800
 
 OUTPUT_DIR = "public"
-
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 
-# 允许输出的地区
 REGION_WHITELIST = {
     "HK", "SG", "JP", "KR",
     "US", "DE", "UK",
     "TW", "AU", "CA"
 }
 
-# 每个地区最大输出数量（新增功能）
 MAX_OUTPUT_PER_REGION = 32
 
 # =========================
-# Cloudflare Colo → Region
+# COLO → Region
 # =========================
 
 COLO_MAP = {
-    # Asia
     "HKG": "HK", "SIN": "SG", "NRT": "JP", "KIX": "JP",
-    "ICN": "KR", "TPE": "TW", "BKK": "TH",
-    "KUL": "MY", "MNL": "PH", "CGK": "ID",
+    "ICN": "KR", "TPE": "TW",
     "SYD": "AU", "MEL": "AU",
 
-    # US
     "LAX": "US", "SJC": "US", "SFO": "US",
     "SEA": "US", "ORD": "US", "DFW": "US",
     "ATL": "US", "IAD": "US", "EWR": "US",
     "JFK": "US", "BOS": "US", "MIA": "US",
 
-    # Europe
     "FRA": "DE", "MUC": "DE",
     "LHR": "UK", "LGW": "UK",
-    "AMS": "NL", "CDG": "FR",
-    "MAD": "ES", "BCN": "ES",
-    "MXP": "IT",
 
-    # Others
     "YYZ": "CA", "YVR": "CA",
 }
 
@@ -87,43 +82,93 @@ def weighted_random_ips(cidrs, total):
     random.shuffle(result)
     return result[:total]
 
-def test_ip(ip):
+def curl_test(ip, domain):
     try:
         cmd = [
-            "curl", "-sI",
-            "--resolve", f"{TRACE_DOMAIN}:443:{ip}",
-            f"https://{TRACE_DOMAIN}",
-            "--max-time", str(TIMEOUT)
+            "curl",
+            "-o", "/dev/null",
+            "-s",
+            "-w", "%{time_connect} %{time_appconnect} %{http_code}",
+            "--http1.1",
+            "--tlsv1.3",
+            "--connect-timeout", str(CONNECT_TIMEOUT),
+            "--max-time", str(TIMEOUT),
+            "--resolve", f"{domain}:443:{ip}",
+            f"https://{domain}"
         ]
-        start = time.time()
-        out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
-        latency = int((time.time() - start) * 1000)
 
-        if latency > LATENCY_LIMIT:
+        out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
+        parts = out.decode().strip().split()
+
+        if len(parts) != 3:
             return None
 
-        headers = out.decode(errors="ignore").lower()
+        time_connect, time_appconnect, http_code = parts
+        latency = int((float(time_connect) + float(time_appconnect)) * 1000)
+
+        if latency > LATENCY_LIMIT or http_code == "000":
+            return None
+
+        # 再拉一次 header 取 cf-ray
+        hdr = subprocess.check_output(
+            [
+                "curl", "-sI",
+                "--resolve", f"{domain}:443:{ip}",
+                f"https://{domain}"
+            ],
+            timeout=TIMEOUT
+        ).decode(errors="ignore").lower()
+
         ray = None
-        for line in headers.splitlines():
+        for line in hdr.splitlines():
             if line.startswith("cf-ray"):
                 ray = line.split(":")[1].strip()
+                break
 
         if not ray:
             return None
 
         colo = ray.split("-")[-1].upper()
-        region = COLO_MAP.get(colo, "OTHER")
+        region = COLO_MAP.get(colo) or "UNMAPPED"
 
         return {
             "ip": str(ip),
-            "port": random.choice(HTTPS_PORTS),
-            "latency": latency,
+            "domain": domain,
             "colo": colo,
-            "region": region
+            "region": region,
+            "latency": latency
         }
 
     except Exception:
         return None
+
+def score_ip(latencies, total_views):
+    P = len(latencies)
+    if P < 2:
+        return 0
+
+    S_stability = P / total_views
+
+    lat_min = min(latencies)
+    lat_max = max(latencies)
+
+    S_consistency = 1 - (lat_max - lat_min) / LATENCY_LIMIT
+    S_consistency = max(0.3, S_consistency)
+
+    S_latency = 1 / (1 + lat_min / 100)
+
+    return round(S_stability * S_consistency * S_latency, 4)
+
+def test_ip(ip):
+    records = []
+
+    for view, domain in TRACE_DOMAINS.items():
+        r = curl_test(ip, domain)
+        if r:
+            r["view"] = view
+            records.append(r)
+
+    return records
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -131,38 +176,71 @@ def main():
     cidrs = fetch_cf_ipv4_cidrs()
     ips = weighted_random_ips(cidrs, SAMPLE_SIZE)
 
-    results = []
+    raw_results = []
+
     with ThreadPoolExecutor(MAX_WORKERS) as pool:
-        for r in pool.map(test_ip, ips):
-            if r:
-                results.append(r)
+        for batch in pool.map(test_ip, ips):
+            raw_results.extend(batch)
 
-    # 按延迟排序（非常关键）
-    results.sort(key=lambda x: x["latency"])
+    # 按 IP 聚合
+    ip_map = defaultdict(list)
+    for r in raw_results:
+        ip_map[r["ip"]].append(r)
 
+    candidates = []
+    all_txt = []
     region_files = defaultdict(list)
 
-    all_txt = []
-    for r in results:
-        line = f'{r["ip"]}:{r["port"]}#{r["region"]}-{r["latency"]}ms\n'
+    for ip, items in ip_map.items():
+        latencies = [x["latency"] for x in items]
+        score = score_ip(latencies, len(TRACE_DOMAINS))
+
+        if score <= 0:
+            continue
+
+        best = min(items, key=lambda x: x["latency"])
+
+        node = {
+            "ip": ip,
+            "port": random.choice(HTTPS_PORTS),
+            "region": best["region"],
+            "colo": best["colo"],
+            "latencies": latencies,
+            "views_passed": [x["view"] for x in items],
+            "score": score
+        }
+
+        candidates.append(node)
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+
+    # 输出 TXT
+    for n in candidates:
+        line = f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]}\n'
         all_txt.append(line)
 
-        if r["region"] in REGION_WHITELIST:
-            region_files[r["region"]].append(line)
+        if n["region"] in REGION_WHITELIST:
+            region_files[n["region"]].append(line)
 
-    # 全量 TXT
     with open(f"{OUTPUT_DIR}/ip_all.txt", "w") as f:
         f.writelines(all_txt)
 
-    # 按地区 TXT（新增：数量限制）
     for region, lines in region_files.items():
-        limited = lines[:MAX_OUTPUT_PER_REGION]
         with open(f"{OUTPUT_DIR}/ip_{region}.txt", "w") as f:
-            f.writelines(limited)
+            f.writelines(lines[:MAX_OUTPUT_PER_REGION])
 
-    # 全量 JSON（不限制，便于分析）
+    # 输出 JSON
     with open(f"{OUTPUT_DIR}/ip_all.json", "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(raw_results, f, indent=2)
+
+    with open(f"{OUTPUT_DIR}/ip_candidates.json", "w") as f:
+        json.dump({
+            "meta": {
+                "views": list(TRACE_DOMAINS.keys()),
+                "generated_at": datetime.utcnow().isoformat() + "Z"
+            },
+            "nodes": candidates
+        }, f, indent=2)
 
     print("[*] Done.")
 
