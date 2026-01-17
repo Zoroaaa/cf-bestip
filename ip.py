@@ -27,7 +27,7 @@ MAX_WORKERS = 30
 LATENCY_LIMIT = 800
 
 OUTPUT_DIR = "public"
-DATA_DIR = "data"
+DATA_DIR = "public/data"
 
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 
@@ -103,31 +103,21 @@ def curl_test(ip, domain):
         ]
 
         out = subprocess.check_output(cmd, timeout=TIMEOUT + 1)
-        parts = out.decode().strip().split()
-        if len(parts) != 3:
-            return None
-
-        tc, ta, code = parts
+        tc, ta, code = out.decode().strip().split()
         latency = int((float(tc) + float(ta)) * 1000)
 
         if latency > LATENCY_LIMIT or code == "000":
             return None
 
         hdr = subprocess.check_output(
-            [
-                "curl", "-sI",
-                "--resolve", f"{domain}:443:{ip}",
-                f"https://{domain}"
-            ],
+            ["curl", "-sI", "--resolve", f"{domain}:443:{ip}", f"https://{domain}"],
             timeout=TIMEOUT
         ).decode(errors="ignore").lower()
 
-        ray = None
-        for line in hdr.splitlines():
-            if line.startswith("cf-ray"):
-                ray = line.split(":")[1].strip()
-                break
-
+        ray = next(
+            (l.split(":")[1].strip() for l in hdr.splitlines() if l.startswith("cf-ray")),
+            None
+        )
         if not ray:
             return None
 
@@ -145,21 +135,18 @@ def curl_test(ip, domain):
     except Exception:
         return None
 
-def score_ip(latencies, total_views):
-    P = len(latencies)
-    if P < 2:
+def score_ip(latencies):
+    if len(latencies) < 2:
         return 0
 
-    S_stability = P / total_views
     lat_min = min(latencies)
     lat_max = max(latencies)
 
-    S_consistency = 1 - (lat_max - lat_min) / LATENCY_LIMIT
-    S_consistency = max(0.3, S_consistency)
+    s_stability = len(latencies) / len(TRACE_DOMAINS)
+    s_consistency = max(0.3, 1 - (lat_max - lat_min) / LATENCY_LIMIT)
+    s_latency = 1 / (1 + lat_min / 100)
 
-    S_latency = 1 / (1 + lat_min / 100)
-
-    return round(S_stability * S_consistency * S_latency, 4)
+    return round(s_stability * s_consistency * s_latency, 4)
 
 def test_ip(ip):
     records = []
@@ -170,15 +157,15 @@ def test_ip(ip):
             records.append(r)
     return records
 
-def aggregate_nodes(raw_results):
+def aggregate_nodes(raw):
     ip_map = defaultdict(list)
-    for r in raw_results:
+    for r in raw:
         ip_map[r["ip"]].append(r)
 
     nodes = []
     for ip, items in ip_map.items():
         latencies = [x["latency"] for x in items]
-        score = score_ip(latencies, len(TRACE_DOMAINS))
+        score = score_ip(latencies)
         if score <= 0:
             continue
 
@@ -189,7 +176,6 @@ def aggregate_nodes(raw_results):
             "region": best["region"],
             "colo": best["colo"],
             "latencies": latencies,
-            "views_passed": [x["view"] for x in items],
             "score": score
         })
 
@@ -204,7 +190,7 @@ def load_region_ips(region):
     if not os.path.exists(path):
         return []
     with open(path) as f:
-        return [line.split(":")[0] for line in f if line.strip()]
+        return [l.split(":")[0] for l in f if l.strip()]
 
 def retest_region_nodes(region):
     ips = load_region_ips(region)
@@ -230,6 +216,7 @@ def save_ip_all_history(lines):
     os.makedirs(DATA_DIR, exist_ok=True)
     today = datetime.utcnow().strftime("%Y-%m-%d")
     path = f"{DATA_DIR}/ip_all_{today}.txt"
+
     with open(path, "w") as f:
         f.writelines(lines)
 
@@ -238,7 +225,7 @@ def save_ip_all_history(lines):
         os.remove(os.path.join(DATA_DIR, files.pop(0)))
 
 def update_good_pool(nodes):
-    path = "ip_good_pool.txt"
+    path = f"{OUTPUT_DIR}/ip_good_pool.txt"
     pool = {}
 
     if os.path.exists(path):
@@ -248,7 +235,9 @@ def update_good_pool(nodes):
 
     for n in nodes:
         if n["score"] >= GOOD_SCORE_THRESHOLD:
-            pool[n["ip"]] = f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]}\n'
+            pool[n["ip"]] = (
+                f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]}\n'
+            )
 
     with open(path, "w") as f:
         f.writelines(pool.values())
@@ -293,7 +282,9 @@ def main():
 
         with open(f"{OUTPUT_DIR}/ip_{region}.txt", "w") as f:
             for n in merged:
-                f.write(f'{n["ip"]}:{n["port"]}#{region}-score{n["score"]}\n')
+                f.write(
+                    f'{n["ip"]}:{n["port"]}#{region}-score{n["score"]}\n'
+                )
 
     with open(f"{OUTPUT_DIR}/ip_candidates.json", "w") as f:
         json.dump({
