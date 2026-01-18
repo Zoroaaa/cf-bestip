@@ -181,7 +181,7 @@ def fetch_proxifly_proxies(region):
 
 def test_proxy_latency(proxy):
     """
-    测试代理的连通性和延迟（改进版：降低 HTTPS 测试严格度）
+    测试代理的连通性和延迟（改进版：严格要求HTTPS测试返回成功状态码）
     返回: {"success": True, "latency": 123, "https_ok": True/False}
     """
     host = proxy["host"]
@@ -220,7 +220,7 @@ def test_proxy_latency(proxy):
         if http_code not in ["204", "200", "301", "302"]:
             return {"success": False, "latency": 999999, "https_ok": False}
         
-        # 测试 HTTPS 支持（降低严格度：只要能建立连接就算成功）
+        # 测试 HTTPS 支持（严格要求成功状态码）
         https_start = time.time()
         https_cmd = ["curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
         
@@ -243,9 +243,9 @@ def test_proxy_latency(proxy):
         
         https_latency = int((time.time() - https_start) * 1000)
         
-        # 只要返回码是 0 或者返回了任何 HTTP 状态码（包括错误码），就认为支持 HTTPS
-        https_ok = (https_result.returncode == 0 or 
-                   (https_result.stdout and len(https_result.stdout.decode().strip()) > 0))
+        # 严格检查HTTPS状态码
+        https_http_code = https_result.stdout.decode().strip()
+        https_ok = https_http_code in ["200", "204", "301", "302"]
         
         # 如果 HTTPS 测试成功，使用 HTTPS 延迟；否则使用 HTTP 延迟
         final_latency = https_latency if https_ok else latency
@@ -307,9 +307,21 @@ def get_proxies(region):
     
     logging.info(f"  ✓ 通过: {len(candidate_proxies)} 个代理")
     
+    # 分离 HTTPS 和 HTTP-only 代理
+    https_proxies = [p for p in candidate_proxies if p["https_ok"]]
+    http_proxies = [p for p in candidate_proxies if not p["https_ok"]]
+    
     # 按 basic_latency 排序
-    candidate_proxies.sort(key=lambda x: x["basic_latency"])
-    best_proxies = candidate_proxies[:MAX_PROXIES_PER_REGION]
+    https_proxies.sort(key=lambda x: x["basic_latency"])
+    http_proxies.sort(key=lambda x: x["basic_latency"])
+    
+    # 先取 HTTPS 代理的前 MAX_PROXIES_PER_REGION 个
+    best_proxies = https_proxies[:MAX_PROXIES_PER_REGION]
+    
+    # 如果不足，补 HTTP-only 代理
+    remaining = MAX_PROXIES_PER_REGION - len(best_proxies)
+    if remaining > 0:
+        best_proxies.extend(http_proxies[:remaining])
     
     logging.info(f"✓ {region} 最终选出 {len(best_proxies)} 个可用代理:")
     for i, p in enumerate(best_proxies, 1):
