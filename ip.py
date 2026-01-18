@@ -66,6 +66,8 @@ MAX_PROXIES_PER_REGION = 3  # 每个地区选出最佳的3个代理
 PROXY_TEST_TIMEOUT = 5
 PROXY_QUICK_TEST_URL = "http://www.gstatic.com/generate_204"
 PROXY_MAX_LATENCY = 3000
+ALLOW_HTTP_ONLY_PROXY = True  # 是否允许使用不支持 HTTPS 的代理（会降低成功率但增加代理可用性）
+PROXY_HTTP_LATENCY_PENALTY = 100  # HTTP-only 代理的延迟惩罚（ms）- 降低惩罚值，给更多机会
 
 # =========================
 # COLO → Region
@@ -177,9 +179,63 @@ def fetch_proxifly_proxies(region):
 # 代理测试函数
 # =========================
 
-def test_proxy_latency(proxy):
+def verify_proxy_for_cloudflare(proxy):
     """
-    测试代理的连通性和延迟（改进版：测试 HTTPS 支持）
+    验证代理是否能够测试 Cloudflare IP（实战验证）
+    直接用代理测试一个真实的 Cloudflare IP，看能否获取 CF-Ray
+    返回: {"success": True, "latency": 123} 或 {"success": False}
+    """
+    host = proxy["host"]
+    port = proxy["port"]
+    proxy_type = proxy.get("type", "http")
+    
+    # 使用一个已知的 Cloudflare IP 测试（1.1.1.1）
+    test_ip = "1.1.1.1"
+    test_domain = list(TRACE_DOMAINS.values())[0]  # 使用第一个测试域名
+    
+    start = time.time()
+    
+    try:
+        cmd = ["curl", "-k", "-sI"]
+        
+        if proxy_type in ["socks5", "socks4"]:
+            cmd.extend(["--socks5", f"{host}:{port}"])
+        else:
+            cmd.extend(["-x", f"http://{host}:{port}"])
+        
+        cmd.extend([
+            "--connect-timeout", "5",
+            "--max-time", "8",
+            "--resolve", f"{test_domain}:443:{test_ip}",
+            f"https://{test_domain}"
+        ])
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=10,
+            stderr=subprocess.DEVNULL
+        )
+        
+        if result.returncode != 0:
+            return {"success": False}
+        
+        headers = result.stdout.decode(errors="ignore").lower()
+        
+        # 检查是否有 CF-Ray（证明能成功访问 Cloudflare）
+        has_cf_ray = "cf-ray" in headers
+        
+        if has_cf_ray:
+            latency = int((time.time() - start) * 1000)
+            return {"success": True, "latency": latency}
+        else:
+            return {"success": False}
+    
+    except Exception as e:
+        logging.debug(f"代理 Cloudflare 验证失败: {host}:{port} - {e}")
+        return {"success": False}
+    """
+    测试代理的连通性和延迟（改进版：降低 HTTPS 测试严格度）
     返回: {"success": True, "latency": 123, "https_ok": True/False}
     """
     host = proxy["host"]
@@ -189,7 +245,7 @@ def test_proxy_latency(proxy):
     start = time.time()
     
     try:
-        # 先测试 HTTP
+        # 先测试 HTTP（基础连通性）
         cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
         
         if proxy_type in ["socks5", "socks4"]:
@@ -218,7 +274,8 @@ def test_proxy_latency(proxy):
         if http_code not in ["204", "200", "301", "302"]:
             return {"success": False, "latency": 999999, "https_ok": False}
         
-        # 测试 HTTPS 支持（测试能否访问 Cloudflare）
+        # 测试 HTTPS 支持（降低严格度：只要能建立连接就算成功）
+        https_start = time.time()
         https_cmd = ["curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
         
         if proxy_type in ["socks5", "socks4"]:
@@ -238,11 +295,18 @@ def test_proxy_latency(proxy):
             timeout=PROXY_TEST_TIMEOUT + 2
         )
         
-        https_ok = https_result.returncode == 0
+        https_latency = int((time.time() - https_start) * 1000)
+        
+        # 只要返回码是 0 或者返回了任何 HTTP 状态码（包括错误码），就认为支持 HTTPS
+        https_ok = (https_result.returncode == 0 or 
+                   (https_result.stdout and len(https_result.stdout.decode().strip()) > 0))
+        
+        # 如果 HTTPS 测试成功，使用 HTTPS 延迟；否则使用 HTTP 延迟
+        final_latency = https_latency if https_ok else latency
         
         return {
             "success": True, 
-            "latency": latency,
+            "latency": final_latency,
             "https_ok": https_ok
         }
     
@@ -256,7 +320,9 @@ def test_proxy_latency(proxy):
 
 def get_proxies(region):
     """
-    获取指定地区的最佳代理（测试后选出延迟最低且支持 HTTPS 的前3个）
+    获取指定地区的最佳代理（两阶段验证）
+    阶段1: 基础连通性测试
+    阶段2: Cloudflare HTTPS 实战验证
     """
     # 从 Proxifly 获取代理列表
     proxies = fetch_proxifly_proxies(region)
@@ -265,13 +331,14 @@ def get_proxies(region):
         logging.warning(f"{region} 无可用代理")
         return []
     
-    # 限制测试数量（最多测试前50个，避免耗时过长）
+    # 限制测试数量
     test_proxies = proxies[:50] if len(proxies) > 50 else proxies
     
-    logging.info(f"{region} 开始测试 {len(test_proxies)} 个代理...")
+    logging.info(f"{region} 开始阶段1: 测试 {len(test_proxies)} 个代理的基础连通性...")
     
-    # 并行测试代理
-    results = []
+    # 阶段1: 基础连通性测试（快速筛选）
+    candidate_proxies = []
+    
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_proxy = {executor.submit(test_proxy_latency, p): p for p in test_proxies}
         
@@ -279,30 +346,54 @@ def get_proxies(region):
             proxy = future_to_proxy[future]
             try:
                 test_result = future.result()
-                # 只选择支持 HTTPS 的代理
-                if (test_result["success"] and 
-                    test_result["https_ok"] and 
-                    test_result["latency"] < PROXY_MAX_LATENCY):
-                    results.append({
+                if test_result["success"] and test_result["latency"] < PROXY_MAX_LATENCY:
+                    candidate_proxies.append({
                         "host": proxy["host"],
                         "port": proxy["port"],
                         "type": proxy["type"],
-                        "test_latency": test_result["latency"]
+                        "basic_latency": test_result["latency"],
+                        "https_ok": test_result["https_ok"]
                     })
             except Exception as e:
                 logging.debug(f"代理测试异常: {e}")
     
-    if not results:
-        logging.warning(f"⚠ {region} 无支持 HTTPS 的代理，将跳过代理扫描")
+    if not candidate_proxies:
+        logging.warning(f"⚠ {region} 无可用代理（阶段1失败），将完全使用直连")
         return []
     
-    # 按延迟排序，选出最佳的3个
-    results.sort(key=lambda x: x["test_latency"])
-    best_proxies = results[:MAX_PROXIES_PER_REGION]
+    logging.info(f"  ✓ 阶段1通过: {len(candidate_proxies)} 个代理")
     
-    logging.info(f"✓ {region} 选出 {len(best_proxies)} 个支持 HTTPS 的最佳代理:")
+    # 阶段2: Cloudflare 实战验证（精确筛选）
+    logging.info(f"{region} 开始阶段2: 验证能否测试 Cloudflare IP...")
+    
+    verified_proxies = []
+    
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_proxy = {executor.submit(verify_proxy_for_cloudflare, p): p for p in candidate_proxies}
+        
+        for future in as_completed(future_to_proxy):
+            proxy = future_to_proxy[future]
+            try:
+                verify_result = future.result()
+                if verify_result["success"]:
+                    proxy["cf_test_latency"] = verify_result["latency"]
+                    verified_proxies.append(proxy)
+            except Exception as e:
+                logging.debug(f"Cloudflare 验证异常: {e}")
+    
+    if not verified_proxies:
+        logging.warning(f"⚠ {region} 无代理通过 Cloudflare 验证（阶段2失败），将完全使用直连")
+        logging.info(f"  原因: {len(candidate_proxies)} 个代理虽能连通，但无法转发 Cloudflare HTTPS 流量")
+        return []
+    
+    # 按 Cloudflare 测试延迟排序
+    verified_proxies.sort(key=lambda x: x["cf_test_latency"])
+    best_proxies = verified_proxies[:MAX_PROXIES_PER_REGION]
+    
+    logging.info(f"✓ {region} 最终选出 {len(best_proxies)} 个可用代理:")
     for i, p in enumerate(best_proxies, 1):
-        logging.info(f"  {i}. {p['host']}:{p['port']} ({p['type']}) - {p['test_latency']}ms")
+        https_mark = "[HTTPS✓]" if p.get("https_ok") else "[HTTP-tunnel]"
+        logging.info(f"  {i}. {p['host']}:{p['port']} ({p['type']}) - CF延迟:{p['cf_test_latency']}ms {https_mark}")
     
     return best_proxies
 
@@ -514,10 +605,14 @@ def scan_region(region, ips, proxies):
         
         logging.info(f"  ✓ 代理扫描收集: {len(raw_results)} 条结果")
     
-    if len(raw_results) < len(ips) * 0.3:
-        logging.info(f"⚠ 代理结果不足,使用直连补充扫描...")
+    # 动态调整补充策略：如果代理结果太少，增加直连比例
+    expected_results = len(ips) * 0.2  # 期望至少 20% 的成功率
+    
+    if len(raw_results) < expected_results:
+        supplement_count = len(ips) // 2 if raw_results else len(ips)
+        logging.info(f"⚠ 代理结果不足（{len(raw_results)}/{expected_results:.0f}），使用直连补充扫描 {supplement_count} 个IP...")
         
-        remaining_ips = ips if not raw_results else ips[:len(ips)//2]
+        remaining_ips = ips[:supplement_count]
         
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures = [executor.submit(test_ip_with_proxy, ip, None) for ip in remaining_ips]
@@ -530,7 +625,9 @@ def scan_region(region, ips, proxies):
                 except:
                     pass
         
-        logging.info(f"  ✓ 直连补充收集: {len(raw_results)} 条总结果")
+        logging.info(f"  ✓ 直连补充收集，当前总计: {len(raw_results)} 条结果")
+    else:
+        logging.info(f"  ✓ 代理结果充足，跳过直连补充")
     
     logging.info(f"✓ {region}: 总计收集 {len(raw_results)} 条测试结果\n")
     return raw_results
