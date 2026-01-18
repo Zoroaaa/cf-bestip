@@ -723,7 +723,6 @@ def main():
             "nodes": all_nodes[:200]  # 只保存前200个
         }, f, indent=2)
     
-    logging.info("\n✅ 扫描完成！")
     
     # 打印统计
     print("\n" + "="*60)
@@ -735,6 +734,8 @@ def main():
             avg_score = sum(n["score"] for n in nodes) / len(nodes)
             print(f"{region:4s}: {len(nodes):3d} 节点 | 平均分数: {avg_score:.3f}")
     print("="*60)
+
+    logging.info("\n✅ 扫描完成！")
 
 if __name__ == "__main__":
     main()
