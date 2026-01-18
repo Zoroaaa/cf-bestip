@@ -179,6 +179,91 @@ def fetch_proxifly_proxies(region):
 # 代理测试函数
 # =========================
 
+# =========================
+# 代理测试和验证函数
+# =========================
+
+def test_proxy_latency(proxy):
+    """
+    测试代理的连通性和延迟（改进版：降低 HTTPS 测试严格度）
+    返回: {"success": True, "latency": 123, "https_ok": True/False}
+    """
+    host = proxy["host"]
+    port = proxy["port"]
+    proxy_type = proxy.get("type", "http")
+    
+    start = time.time()
+    
+    try:
+        # 先测试 HTTP（基础连通性）
+        cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
+        
+        if proxy_type in ["socks5", "socks4"]:
+            cmd.extend(["--socks5", f"{host}:{port}"])
+        else:
+            cmd.extend(["-x", f"http://{host}:{port}"])
+        
+        cmd.extend([
+            "--connect-timeout", str(PROXY_TEST_TIMEOUT),
+            "--max-time", str(PROXY_TEST_TIMEOUT),
+            PROXY_QUICK_TEST_URL
+        ])
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=PROXY_TEST_TIMEOUT + 2
+        )
+        
+        latency = int((time.time() - start) * 1000)
+        
+        if result.returncode != 0:
+            return {"success": False, "latency": 999999, "https_ok": False}
+        
+        http_code = result.stdout.decode().strip()
+        if http_code not in ["204", "200", "301", "302"]:
+            return {"success": False, "latency": 999999, "https_ok": False}
+        
+        # 测试 HTTPS 支持（降低严格度：只要能建立连接就算成功）
+        https_start = time.time()
+        https_cmd = ["curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
+        
+        if proxy_type in ["socks5", "socks4"]:
+            https_cmd.extend(["--socks5", f"{host}:{port}"])
+        else:
+            https_cmd.extend(["-x", f"http://{host}:{port}"])
+        
+        https_cmd.extend([
+            "--connect-timeout", str(PROXY_TEST_TIMEOUT),
+            "--max-time", str(PROXY_TEST_TIMEOUT),
+            "https://www.cloudflare.com/cdn-cgi/trace"
+        ])
+        
+        https_result = subprocess.run(
+            https_cmd,
+            capture_output=True,
+            timeout=PROXY_TEST_TIMEOUT + 2
+        )
+        
+        https_latency = int((time.time() - https_start) * 1000)
+        
+        # 只要返回码是 0 或者返回了任何 HTTP 状态码（包括错误码），就认为支持 HTTPS
+        https_ok = (https_result.returncode == 0 or 
+                   (https_result.stdout and len(https_result.stdout.decode().strip()) > 0))
+        
+        # 如果 HTTPS 测试成功，使用 HTTPS 延迟；否则使用 HTTP 延迟
+        final_latency = https_latency if https_ok else latency
+        
+        return {
+            "success": True, 
+            "latency": final_latency,
+            "https_ok": https_ok
+        }
+    
+    except Exception as e:
+        logging.debug(f"代理 {host}:{port} 测试失败: {e}")
+        return {"success": False, "latency": 999999, "https_ok": False}
+
 def verify_proxy_for_cloudflare(proxy):
     """
     验证代理是否能够测试 Cloudflare IP（实战验证）
