@@ -627,23 +627,7 @@ def main():
     
     with open(f"{OUTPUT_DIR}/ip_all.txt", "w") as f:
         f.writelines(all_lines)
-    
-    # 保存历史
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    with open(f"{DATA_DIR}/ip_all_{today}.txt", "w") as f:
-        f.writelines(all_lines)
-    
-    # 清理旧历史
-    history_files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("ip_all_")])
-    while len(history_files) > 7:
-        os.remove(os.path.join(DATA_DIR, history_files.pop(0)))
-    
-    # 保存高质量池
-    good_pool = [n for n in all_nodes if n["score"] >= GOOD_SCORE_THRESHOLD]
-    with open(f"{OUTPUT_DIR}/ip_good_pool.txt", "w") as f:
-        for n in good_pool:
-            f.write(f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]}\n')
-    
+   
     # 按地区保存（top 16）
     for region, nodes in region_results.items():
         nodes.sort(key=lambda x: x["score"], reverse=True)
