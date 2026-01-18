@@ -16,9 +16,7 @@ from datetime import datetime
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
+    handlers=[logging.StreamHandler()]
 )
 
 # =========================
@@ -33,11 +31,11 @@ TRACE_DOMAINS = {
     "v2": "sptest2.ittool.pp.ua",
 }
 
-SAMPLE_SIZE = 800  # 减少总数，因为要分配给多个地区
-TIMEOUT = 6
-CONNECT_TIMEOUT = 3
-MAX_WORKERS = 16  # 降低并发，避免代理过载
-LATENCY_LIMIT = 800  # 代理会增加延迟，适当放宽
+SAMPLE_SIZE = 800
+TIMEOUT = 8
+CONNECT_TIMEOUT = 4
+MAX_WORKERS = 12
+LATENCY_LIMIT = 800
 
 OUTPUT_DIR = "public"
 DATA_DIR = "public/data"
@@ -45,7 +43,7 @@ PROXY_CACHE_DIR = "proxy_cache"
 
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 
-# 目标地区及对应国家代码
+# 目标地区配置
 REGION_CONFIG = {
     "HK": {"codes": ["HK"], "sample": 100},
     "SG": {"codes": ["SG"], "sample": 100},
@@ -60,8 +58,13 @@ REGION_CONFIG = {
 }
 
 MAX_OUTPUT_PER_REGION = 32
-GOOD_SCORE_THRESHOLD = 0.7  # 降低阈值，因为代理测试分数会偏低
-MAX_PROXIES_PER_REGION = 5  # 每个地区最多使用5个代理
+GOOD_SCORE_THRESHOLD = 0.75
+MAX_PROXIES_PER_REGION = 3  # 减少到3个,提高成功率
+
+# 代理测试配置
+PROXY_TEST_TIMEOUT = 5  # 代理测试超时(秒)
+PROXY_QUICK_TEST_URL = "http://www.gstatic.com/generate_204"  # 用于快速测试
+PROXY_MAX_LATENCY = 3000  # 代理最大可接受延迟(毫秒)
 
 # =========================
 # COLO → Region
@@ -82,11 +85,11 @@ COLO_MAP = {
 }
 
 # =========================
-# 代理获取器
+# 改进的代理获取器
 # =========================
 
 class ProxyFetcher:
-    """从多个源获取免费代理"""
+    """从多个源获取并验证代理"""
     
     def __init__(self, cache_dir=PROXY_CACHE_DIR):
         self.cache_dir = cache_dir
@@ -97,9 +100,9 @@ class ProxyFetcher:
         })
     
     def get_cache_path(self, region):
-        return os.path.join(self.cache_dir, f"proxies_{region}.json")
+        return os.path.join(self.cache_dir, f"verified_proxies_{region}.json")
     
-    def is_cache_valid(self, region, max_age=1800):  # 30分钟缓存
+    def is_cache_valid(self, region, max_age=3600):  # 1小时缓存
         cache_file = self.get_cache_path(region)
         if not os.path.exists(cache_file):
             return False
@@ -111,156 +114,134 @@ class ProxyFetcher:
         try:
             with open(cache_file, 'r') as f:
                 data = json.load(f)
-                logging.info(f"从缓存加载 {len(data)} 个 {region} 代理")
+                logging.info(f"✓ 从缓存加载 {len(data)} 个已验证的 {region} 代理")
                 return data
         except:
             return []
     
     def save_to_cache(self, region, proxies):
+        if not proxies:
+            return
         cache_file = self.get_cache_path(region)
         with open(cache_file, 'w') as f:
             json.dump(proxies, f)
-        logging.info(f"缓存 {len(proxies)} 个 {region} 代理")
+        logging.info(f"✓ 缓存 {len(proxies)} 个已验证代理")
     
-    def fetch_from_proxyscrape(self, country_code):
-        """ProxyScrape API"""
+    def fetch_from_pubproxy(self, country_code):
+        """PubProxy API - 较可靠的免费源"""
         proxies = []
         try:
-            for protocol in ['http', 'socks5']:
-                url = (
-                    f"https://api.proxyscrape.com/v2/?request=get"
-                    f"&protocol={protocol}"
-                    f"&timeout=10000"
-                    f"&country={country_code}"
-                    f"&ssl=yes"
-                    f"&anonymity=elite,anonymous"
-                )
-                resp = self.session.get(url, timeout=15)
-                if resp.status_code == 200:
-                    for line in resp.text.strip().split('\n')[:50]:
-                        if ':' in line:
-                            host, port = line.strip().split(':')
-                            proxies.append({
-                                "host": host.strip(),
-                                "port": int(port.strip()),
-                                "type": protocol,
-                                "country": country_code,
-                                "source": "proxyscrape"
-                            })
-                time.sleep(1)
+            url = f"http://pubproxy.com/api/proxy?limit=20&format=json&type=http&country={country_code}"
+            resp = self.session.get(url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get('data', []):
+                    proxies.append({
+                        "host": item['ip'],
+                        "port": int(item['port']),
+                        "type": item.get('type', 'http'),
+                        "country": country_code,
+                        "source": "pubproxy"
+                    })
         except Exception as e:
-            logging.warning(f"ProxyScrape {country_code} 失败: {e}")
+            logging.debug(f"PubProxy {country_code} 失败: {e}")
         return proxies
     
-    def fetch_from_geonode(self, country_code):
-        """Geonode API"""
+    def fetch_from_proxylist_geonode(self, country_code):
+        """Geonode - 质量较好"""
         proxies = []
         try:
             url = (
                 f"https://proxylist.geonode.com/api/proxy-list"
-                f"?limit=100"
-                f"&page=1"
-                f"&sort_by=lastChecked"
-                f"&sort_type=desc"
+                f"?limit=50&page=1&sort_by=lastChecked&sort_type=desc"
                 f"&country={country_code}"
-                f"&protocols=http,https,socks5"
+                f"&protocols=http,https"
+                f"&filterUpTime=90"  # 只要90%+在线率
             )
-            resp = self.session.get(url, timeout=15)
+            resp = self.session.get(url, timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
-                for item in data.get('data', [])[:50]:
-                    protocols = item.get('protocols', [])
-                    proto = 'socks5' if 'socks5' in protocols else 'http'
+                for item in data.get('data', [])[:30]:
                     proxies.append({
                         "host": item['ip'],
                         "port": int(item['port']),
-                        "type": proto,
+                        "type": 'http',
                         "country": country_code,
-                        "source": "geonode"
+                        "source": "geonode",
+                        "uptime": item.get('upTime', 0)
                     })
         except Exception as e:
-            logging.warning(f"Geonode {country_code} 失败: {e}")
+            logging.debug(f"Geonode {country_code} 失败: {e}")
         return proxies
     
-    def fetch_from_proxylist_download(self):
-        """通用代理列表"""
+    def fetch_from_proxy11(self):
+        """Proxy11 - 备用源"""
         proxies = []
         try:
-            url = "https://www.proxy-list.download/api/v1/get?type=https"
-            resp = self.session.get(url, timeout=15)
+            url = "https://api.proxy11.com/api/proxy-list?limit=100"
+            resp = self.session.get(url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get('proxies', [])[:50]:
+                    proxies.append({
+                        "host": item['ip'],
+                        "port": int(item['port']),
+                        "type": 'http',
+                        "country": item.get('country', 'UNKNOWN'),
+                        "source": "proxy11"
+                    })
+        except Exception as e:
+            logging.debug(f"Proxy11 失败: {e}")
+        return proxies
+    
+    def fetch_from_github_proxy_list(self):
+        """GitHub代理列表 - 社区维护"""
+        proxies = []
+        try:
+            # TheSpeedX/PROXY-List
+            url = "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt"
+            resp = self.session.get(url, timeout=10)
             if resp.status_code == 200:
                 for line in resp.text.strip().split('\n')[:100]:
                     if ':' in line:
-                        host, port = line.strip().split(':')
-                        proxies.append({
-                            "host": host.strip(),
-                            "port": int(port.strip()),
-                            "type": "http",
-                            "country": "UNKNOWN",
-                            "source": "proxylist"
-                        })
+                        try:
+                            host, port = line.strip().split(':')
+                            proxies.append({
+                                "host": host,
+                                "port": int(port),
+                                "type": "http",
+                                "country": "UNKNOWN",
+                                "source": "github"
+                            })
+                        except:
+                            pass
         except Exception as e:
-            logging.warning(f"Proxy-list 失败: {e}")
+            logging.debug(f"GitHub代理列表失败: {e}")
         return proxies
     
-    def fetch_from_openproxylist(self):
-        """OpenProxyList"""
-        proxies = []
-        try:
-            url = "https://api.openproxylist.xyz/http.txt"
-            resp = self.session.get(url, timeout=15)
-            if resp.status_code == 200:
-                for line in resp.text.strip().split('\n')[:100]:
-                    if ':' in line:
-                        host, port = line.strip().split(':')
-                        proxies.append({
-                            "host": host.strip(),
-                            "port": int(port.strip()),
-                            "type": "http",
-                            "country": "UNKNOWN",
-                            "source": "openproxy"
-                        })
-        except Exception as e:
-            logging.warning(f"OpenProxyList 失败: {e}")
-        return proxies
-    
-    def get_proxies(self, region):
-        """获取指定地区的代理"""
-        
-        # 检查缓存
-        if self.is_cache_valid(region):
-            cached = self.load_from_cache(region)
-            if len(cached) >= 10:
-                return cached
-        
-        country_codes = REGION_CONFIG.get(region, {}).get("codes", [])
-        if not country_codes:
-            logging.warning(f"未找到 {region} 的国家代码配置")
-            return []
-        
+    def fetch_all_sources(self, country_codes):
+        """从所有源获取代理"""
         all_proxies = []
         
-        # 从多个源获取
+        # 1. 优先获取指定国家代理
         for country_code in country_codes:
-            logging.info(f"正在获取 {region} ({country_code}) 的代理...")
+            logging.info(f"  → 获取 {country_code} 代理...")
             
-            # 来源1: ProxyScrape
-            proxies = self.fetch_from_proxyscrape(country_code)
+            # 来源1: PubProxy
+            proxies = self.fetch_from_pubproxy(country_code)
             all_proxies.extend(proxies)
-            time.sleep(0.5)
+            time.sleep(0.3)
             
             # 来源2: Geonode
-            proxies = self.fetch_from_geonode(country_code)
+            proxies = self.fetch_from_proxylist_geonode(country_code)
             all_proxies.extend(proxies)
-            time.sleep(0.5)
+            time.sleep(0.3)
         
-        # 来源3: 通用代理（作为补充）
+        # 2. 通用代理源(作为补充)
         if len(all_proxies) < 20:
-            proxies = self.fetch_from_proxylist_download()
-            all_proxies.extend(proxies)
-            
-            proxies = self.fetch_from_openproxylist()
-            all_proxies.extend(proxies)
+            logging.info("  → 获取通用代理...")
+            all_proxies.extend(self.fetch_from_proxy11())
+            all_proxies.extend(self.fetch_from_github_proxy_list())
         
         # 去重
         unique_proxies = []
@@ -271,59 +252,126 @@ class ProxyFetcher:
                 seen.add(key)
                 unique_proxies.append(p)
         
-        # 保存缓存
-        if unique_proxies:
-            self.save_to_cache(region, unique_proxies)
-        
-        logging.info(f"获取到 {len(unique_proxies)} 个 {region} 代理")
+        logging.info(f"  ✓ 获取到 {len(unique_proxies)} 个不重复代理")
         return unique_proxies
+    
+    def get_proxies(self, region):
+        """获取指定地区的代理"""
+        
+        # 检查缓存
+        if self.is_cache_valid(region):
+            cached = self.load_from_cache(region)
+            if len(cached) >= 3:
+                return cached
+        
+        country_codes = REGION_CONFIG.get(region, {}).get("codes", [])
+        if not country_codes:
+            logging.warning(f"未找到 {region} 的国家代码")
+            return []
+        
+        logging.info(f"\n{'='*50}")
+        logging.info(f"获取 {region} 地区代理...")
+        logging.info(f"{'='*50}")
+        
+        # 获取原始代理列表
+        all_proxies = self.fetch_all_sources(country_codes)
+        
+        if not all_proxies:
+            logging.warning(f"⚠ {region} 未获取到任何代理")
+            return []
+        
+        return all_proxies
 
 # =========================
-# 代理测试和筛选
+# 代理快速验证
 # =========================
 
-def test_proxy(proxy, test_url="https://cloudflare.com/cdn-cgi/trace", timeout=8):
-    """测试代理可用性"""
+def quick_test_proxy(proxy, test_url=PROXY_QUICK_TEST_URL):
+    """快速测试代理连通性"""
     try:
-        proxy_url = f"{proxy['type']}://{proxy['host']}:{proxy['port']}"
-        proxies_dict = {
-            "http": proxy_url,
-            "https": proxy_url
-        }
+        proxy_url = f"{proxy.get('type', 'http')}://{proxy['host']}:{proxy['port']}"
+        proxies_dict = {"http": proxy_url, "https": proxy_url}
         
         start = time.time()
         resp = requests.get(
             test_url,
             proxies=proxies_dict,
-            timeout=timeout,
-            verify=False  # 免费代理可能证书问题
+            timeout=PROXY_TEST_TIMEOUT,
+            allow_redirects=False
         )
         latency = int((time.time() - start) * 1000)
         
+        # 204 No Content 或 200 都算成功
+        if resp.status_code in [200, 204] and latency < PROXY_MAX_LATENCY:
+            proxy['test_latency'] = latency
+            return True
+    except:
+        pass
+    return False
+
+def test_proxy_with_cloudflare(proxy):
+    """用Cloudflare trace测试代理并获取位置"""
+    try:
+        proxy_url = f"{proxy.get('type', 'http')}://{proxy['host']}:{proxy['port']}"
+        proxies_dict = {"http": proxy_url, "https": proxy_url}
+        
+        resp = requests.get(
+            "https://cloudflare.com/cdn-cgi/trace",
+            proxies=proxies_dict,
+            timeout=PROXY_TEST_TIMEOUT,
+            verify=False
+        )
+        
         if resp.status_code == 200:
-            # 解析位置信息
             for line in resp.text.split('\n'):
                 if line.startswith('colo='):
                     proxy['colo'] = line.split('=')[1].strip().upper()
                 elif line.startswith('loc='):
                     proxy['loc'] = line.split('=')[1].strip().upper()
-            
-            proxy['test_latency'] = latency
             return True
-        
-    except Exception as e:
+    except:
         pass
-    
     return False
 
-def filter_working_proxies(proxies, max_workers=20, max_proxies=5):
-    """并发筛选可用代理"""
+def filter_working_proxies(proxies, max_workers=30, max_proxies=MAX_PROXIES_PER_REGION):
+    """两阶段筛选代理: 1.快速连通性测试 2.Cloudflare验证"""
+    
+    if not proxies:
+        return []
+    
+    logging.info(f"\n阶段1: 快速测试 {len(proxies)} 个代理连通性...")
+    
+    # 阶段1: 快速连通性测试
+    quick_pass = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_proxy = {executor.submit(quick_test_proxy, p): p for p in proxies}
+        
+        for future in as_completed(future_to_proxy):
+            proxy = future_to_proxy[future]
+            try:
+                if future.result(timeout=PROXY_TEST_TIMEOUT + 1):
+                    quick_pass.append(proxy)
+                    if len(quick_pass) >= max_proxies * 3:  # 多筛选一些备用
+                        break
+            except:
+                pass
+    
+    # 按延迟排序
+    quick_pass.sort(key=lambda x: x.get('test_latency', 9999))
+    logging.info(f"  ✓ 通过快速测试: {len(quick_pass)} 个")
+    
+    if not quick_pass:
+        return []
+    
+    # 阶段2: Cloudflare验证(只测试前面的)
+    logging.info(f"\n阶段2: Cloudflare位置验证...")
     working = []
     
-    logging.info(f"开始测试 {len(proxies)} 个代理...")
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_proxy = {executor.submit(test_proxy, p): p for p in proxies[:50]}  # 只测试前50个
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        future_to_proxy = {
+            executor.submit(test_proxy_with_cloudflare, p): p 
+            for p in quick_pass[:max_proxies * 2]
+        }
         
         for future in as_completed(future_to_proxy):
             if len(working) >= max_proxies:
@@ -331,36 +379,37 @@ def filter_working_proxies(proxies, max_workers=20, max_proxies=5):
             
             proxy = future_to_proxy[future]
             try:
-                if future.result(timeout=10):
+                if future.result(timeout=PROXY_TEST_TIMEOUT + 2):
                     working.append(proxy)
-                    logging.info(f"✓ 可用代理: {proxy['host']}:{proxy['port']} "
-                               f"[{proxy.get('colo', 'N/A')}] "
-                               f"延迟:{proxy.get('test_latency', 0)}ms")
+                    logging.info(
+                        f"  ✓ {proxy['host']}:{proxy['port']} "
+                        f"[{proxy.get('colo', 'N/A')}] "
+                        f"{proxy.get('test_latency', 0)}ms"
+                    )
             except:
                 pass
     
-    logging.info(f"筛选出 {len(working)} 个可用代理")
+    logging.info(f"\n✓ 最终可用: {len(working)} 个代理\n")
     return working
 
 # =========================
-# 通过代理测试 Cloudflare IP
+# IP测试(通过代理或直连)
 # =========================
 
 def curl_test_with_proxy(ip, domain, proxy=None):
     """使用代理测试 Cloudflare IP"""
     try:
-        cmd = ["curl", "-k"]  # -k 忽略证书验证
+        cmd = ["curl", "-k", "-o", "/dev/null", "-s"]
         
         # 添加代理
         if proxy:
-            if proxy['type'] == 'socks5':
+            proxy_type = proxy.get('type', 'http')
+            if proxy_type == 'socks5':
                 cmd.extend(["--socks5", f"{proxy['host']}:{proxy['port']}"])
             else:
                 cmd.extend(["-x", f"{proxy['host']}:{proxy['port']}"])
         
         cmd.extend([
-            "-o", "/dev/null",
-            "-s",
             "-w", "%{time_connect} %{time_appconnect} %{http_code}",
             "--http1.1",
             "--connect-timeout", str(CONNECT_TIMEOUT),
@@ -378,14 +427,15 @@ def curl_test_with_proxy(ip, domain, proxy=None):
         tc, ta, code = parts[0], parts[1], parts[2]
         latency = int((float(tc) + float(ta)) * 1000)
         
-        if latency > LATENCY_LIMIT or code == "000" or code == "0":
+        if latency > LATENCY_LIMIT or code in ["000", "0"]:
             return None
         
         # 获取 CF-Ray
         hdr_cmd = ["curl", "-k", "-sI"]
         
         if proxy:
-            if proxy['type'] == 'socks5':
+            proxy_type = proxy.get('type', 'http')
+            if proxy_type == 'socks5':
                 hdr_cmd.extend(["--socks5", f"{proxy['host']}:{proxy['port']}"])
             else:
                 hdr_cmd.extend(["-x", f"{proxy['host']}:{proxy['port']}"])
@@ -422,7 +472,7 @@ def curl_test_with_proxy(ip, domain, proxy=None):
             "proxy": f"{proxy['host']}:{proxy['port']}" if proxy else "direct"
         }
     
-    except Exception as e:
+    except Exception:
         return None
 
 def test_ip_with_proxy(ip, proxy=None):
@@ -500,34 +550,54 @@ def aggregate_nodes(raw):
     return nodes
 
 # =========================
-# 分地区扫描
+# 分地区扫描(改进策略)
 # =========================
 
 def scan_region(region, ips, proxies):
-    """扫描指定地区"""
+    """扫描指定地区 - 优先代理,降级到直连"""
     logging.info(f"\n{'='*60}")
     logging.info(f"开始扫描地区: {region}")
     logging.info(f"{'='*60}")
     
-    if not proxies:
-        logging.warning(f"{region} 无可用代理，使用直连")
-        proxies = [None]
-    
     raw_results = []
-    ips_per_proxy = max(1, len(ips) // len(proxies))
     
-    # 分配 IP 给不同代理
-    for i, proxy in enumerate(proxies):
-        proxy_ips = ips[i*ips_per_proxy:(i+1)*ips_per_proxy]
+    # 策略1: 如果有代理,优先使用代理
+    if proxies:
+        logging.info(f"使用 {len(proxies)} 个代理进行扫描...")
         
-        if not proxy_ips:
-            continue
+        ips_per_proxy = max(1, len(ips) // len(proxies))
         
-        proxy_info = f"{proxy['host']}:{proxy['port']}" if proxy else "直连"
-        logging.info(f"通过 {proxy_info} 测试 {len(proxy_ips)} 个 IP...")
+        for i, proxy in enumerate(proxies):
+            proxy_ips = ips[i*ips_per_proxy:(i+1)*ips_per_proxy]
+            
+            if not proxy_ips:
+                continue
+            
+            proxy_info = f"{proxy['host']}:{proxy['port']} [{proxy.get('colo', 'N/A')}]"
+            logging.info(f"  → 通过代理 {proxy_info} 测试 {len(proxy_ips)} 个IP...")
+            
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futures = [executor.submit(test_ip_with_proxy, ip, proxy) for ip in proxy_ips]
+                
+                for future in as_completed(futures):
+                    try:
+                        batch = future.result(timeout=TIMEOUT + 5)
+                        if batch:
+                            raw_results.extend(batch)
+                    except:
+                        pass
+        
+        logging.info(f"  ✓ 代理扫描收集: {len(raw_results)} 条结果")
+    
+    # 策略2: 如果代理结果太少,补充直连扫描
+    if len(raw_results) < len(ips) * 0.3:  # 如果结果少于30%
+        logging.info(f"⚠ 代理结果不足,使用直连补充扫描...")
+        
+        # 使用剩余IP或全部IP
+        remaining_ips = ips if not raw_results else ips[:len(ips)//2]
         
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = [executor.submit(test_ip_with_proxy, ip, proxy) for ip in proxy_ips]
+            futures = [executor.submit(test_ip_with_proxy, ip, None) for ip in remaining_ips]
             
             for future in as_completed(futures):
                 try:
@@ -536,8 +606,10 @@ def scan_region(region, ips, proxies):
                         raw_results.extend(batch)
                 except:
                     pass
+        
+        logging.info(f"  ✓ 直连补充收集: {len(raw_results)} 条总结果")
     
-    logging.info(f"{region}: 收集到 {len(raw_results)} 条测试结果")
+    logging.info(f"✓ {region}: 总计收集 {len(raw_results)} 条测试结果\n")
     return raw_results
 
 # =========================
@@ -548,6 +620,11 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(DATA_DIR, exist_ok=True)
     
+    logging.info(f"\n{'#'*60}")
+    logging.info(f"# Cloudflare IP 优选扫描器 (改进版)")
+    logging.info(f"# 策略: 代理优先 → 直连降级")
+    logging.info(f"{'#'*60}\n")
+    
     # 初始化代理获取器
     proxy_fetcher = ProxyFetcher()
     
@@ -557,7 +634,7 @@ def main():
     
     # 生成测试 IP 池
     total_ips = sum(cfg["sample"] for cfg in REGION_CONFIG.values())
-    logging.info(f"生成 {total_ips} 个测试 IP...")
+    logging.info(f"生成 {total_ips} 个测试 IP...\n")
     all_test_ips = weighted_random_ips(cidrs, total_ips)
     
     # 按地区分配 IP 并扫描
@@ -571,11 +648,14 @@ def main():
         ip_offset += sample_size
         
         # 获取该地区的代理
-        logging.info(f"\n获取 {region} 地区的代理...")
-        proxies = proxy_fetcher.get_proxies(region)
+        raw_proxies = proxy_fetcher.get_proxies(region)
         
-        # 筛选可用代理
-        working_proxies = filter_working_proxies(proxies, max_proxies=MAX_PROXIES_PER_REGION)
+        # 验证代理
+        working_proxies = filter_working_proxies(raw_proxies)
+        
+        # 保存已验证代理到缓存
+        if working_proxies:
+            proxy_fetcher.save_to_cache(region, working_proxies)
         
         # 扫描
         raw = scan_region(region, region_ips, working_proxies)
@@ -584,16 +664,20 @@ def main():
         region_results[region] = nodes
         all_results.extend(raw)
         
+        logging.info(f"{'='*60}")
         logging.info(f"✓ {region}: 发现 {len(nodes)} 个有效节点")
+        logging.info(f"{'='*60}\n")
         
         # 避免请求过快
-        time.sleep(2)
+        time.sleep(1)
     
     # 汇总所有节点
     all_nodes = aggregate_nodes(all_results)
     all_nodes.sort(key=lambda x: x["score"], reverse=True)
     
-    logging.info(f"\n总计发现 {len(all_nodes)} 个节点")
+    logging.info(f"\n{'='*60}")
+    logging.info(f"总计发现 {len(all_nodes)} 个节点")
+    logging.info(f"{'='*60}\n")
     
     # 保存总文件
     all_lines = [f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]}\n' for n in all_nodes]
@@ -602,7 +686,6 @@ def main():
         f.writelines(all_lines)
     
     # 保存历史
-    os.makedirs(DATA_DIR, exist_ok=True)
     today = datetime.utcnow().strftime("%Y-%m-%d")
     with open(f"{DATA_DIR}/ip_all_{today}.txt", "w") as f:
         f.writelines(all_lines)
