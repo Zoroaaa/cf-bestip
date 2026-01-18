@@ -60,7 +60,7 @@ REGION_CONFIG = {
 
 MAX_OUTPUT_PER_REGION = 16
 GOOD_SCORE_THRESHOLD = 0.75
-MAX_PROXIES_PER_REGION = 3  # 每个地区从 ProxyIP 域名解析出的 IP 中选前 3 个作为代理
+MAX_PROXIES_PER_REGION = 3  # 每个地区选出最佳的3个代理
 
 # 代理测试配置
 PROXY_TEST_TIMEOUT = 5
@@ -86,138 +86,180 @@ COLO_MAP = {
 }
 
 # =========================
-# 地区对应的 ProxyIP 域名（默认端口 443）
+# Proxifly 代理列表基础 URL
 # =========================
+PROXIFLY_BASE_URL = "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/{}/data.txt"
 
-REGION_DOMAINS = {
-    "HK": ["ProxyIP.HK.CMLiussss.net"],
-    "SG": ["ProxyIP.SG.CMLiussss.net"],
-    "JP": ["ProxyIP.JP.CMLiussss.net"],
-    "KR": ["ProxyIP.KR.CMLiussss.net", "kr.william.us.ci"],
-    "TW": ["tw.william.us.ci"],
-    "US": ["ProxyIP.US.CMLiussss.net"],
-    "DE": ["ProxyIP.DE.CMLiussss.net"],
-    "UK": ["ProxyIP.GB.CMLiussss.net"],
-    "AU": ["ProxyIP.CMLiussss.net"],  # 全球 fallback
-    "CA": ["ProxyIP.CA.CMLiussss.net"],
+# 地区代码映射（REGION_CONFIG key -> Proxifly country code）
+REGION_TO_COUNTRY_CODE = {
+    "HK": "HK",
+    "SG": "SG",
+    "JP": "JP",
+    "KR": "KR",
+    "TW": "TW",
+    "US": "US",
+    "DE": "DE",
+    "UK": "GB",
+    "AU": "AU",
+    "CA": "CA",
 }
 
 # =========================
-# DNS 解析函数
+# 从 Proxifly 获取代理列表
 # =========================
 
-def resolve_domain(domain):
-    ips = []
+def fetch_proxifly_proxies(region):
+    """
+    从 Proxifly 获取指定地区的代理列表
+    返回格式: [{"host": "1.2.3.4", "port": 8080, "type": "http"}, ...]
+    """
+    country_code = REGION_TO_COUNTRY_CODE.get(region)
+    if not country_code:
+        logging.warning(f"{region} 无对应的 Proxifly 国家代码")
+        return []
+    
+    url = PROXIFLY_BASE_URL.format(country_code)
+    
     try:
-        # IPv4
-        resp = requests.get(
-            f"https://1.1.1.1/dns-query?name={domain}&type=A",
-            headers={"accept": "application/dns-json"},
-            timeout=10
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if "Answer" in data:
-            ips.extend([ans["data"] for ans in data["Answer"] if ans["type"] == 1])
-    except Exception as e:
-        logging.debug(f"DNS IPv4 {domain} 失败: {e}")
-
-    try:
-        # IPv6
-        resp = requests.get(
-            f"https://1.1.1.1/dns-query?name={domain}&type=AAAA",
-            headers={"accept": "application/dns-json"},
-            timeout=10
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if "Answer" in data:
-            ips.extend([f"[{ans['data']}]" for ans in data["Answer"] if ans["type"] == 28])
-    except Exception as e:
-        logging.debug(f"DNS IPv6 {domain} 失败: {e}")
-
-    return ips
+        logging.info(f"正在从 Proxifly 获取 {region} 的代理列表...")
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        
+        proxies = []
+        lines = response.text.strip().split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            
+            # 格式: IP:PORT 或 IP:PORT:TYPE
+            parts = line.split(':')
+            if len(parts) >= 2:
+                try:
+                    host = parts[0].strip()
+                    port = int(parts[1].strip())
+                    proxy_type = parts[2].strip().lower() if len(parts) > 2 else "http"
+                    
+                    # 验证 IP 格式
+                    ipaddress.ip_address(host)
+                    
+                    proxies.append({
+                        "host": host,
+                        "port": port,
+                        "type": proxy_type
+                    })
+                except (ValueError, ipaddress.AddressValueError):
+                    continue
+        
+        logging.info(f"✓ {region}: 获取到 {len(proxies)} 个代理")
+        return proxies
+    
+    except requests.RequestException as e:
+        logging.error(f"✗ {region}: 获取代理列表失败 - {e}")
+        return []
 
 # =========================
-# ProxyIP 验证 + 延迟测试函数
+# 代理测试函数
 # =========================
 
-def test_proxy_latency(ip, port=443):
-    connect_ip = ip.strip("[]")
-    family = socket.AF_INET6 if ':' in connect_ip else socket.AF_INET
-
+def test_proxy_latency(proxy):
+    """
+    测试代理的连通性和延迟
+    返回: {"success": True, "latency": 123} 或 {"success": False, "latency": 999999}
+    """
+    host = proxy["host"]
+    port = proxy["port"]
+    proxy_type = proxy.get("type", "http")
+    
     start = time.time()
+    
     try:
-        s = socket.socket(family)
-        s.settimeout(5)
-        s.connect((connect_ip, port))
-        s.send(b"GET /cdn-cgi/trace HTTP/1.1\r\nHost: speed.cloudflare.com\r\nConnection: close\r\n\r\n")
-
-        response = b""
-        while True:
-            chunk = s.recv(4096)
-            if not chunk:
-                break
-            response += chunk
-            if len(response) > 2048 or (time.time() - start) > 5:
-                break
-
-        response_text = response.decode(errors='ignore').lower()
-        s.close()
-
-        if "cf-ray" in response_text and "cloudflare" in response_text and "400 bad request" in response_text:
-            latency = int((time.time() - start) * 1000)
-            return {"success": True, "latency": latency}
+        # 使用 curl 测试代理
+        cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
+        
+        if proxy_type == "socks5":
+            cmd.extend(["--socks5", f"{host}:{port}"])
         else:
-            return {"success": False, "latency": 999999}
+            cmd.extend(["-x", f"{host}:{port}"])
+        
+        cmd.extend([
+            "--connect-timeout", str(PROXY_TEST_TIMEOUT),
+            "--max-time", str(PROXY_TEST_TIMEOUT),
+            PROXY_QUICK_TEST_URL
+        ])
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=PROXY_TEST_TIMEOUT + 2
+        )
+        
+        latency = int((time.time() - start) * 1000)
+        
+        # 检查返回码
+        if result.returncode == 0:
+            http_code = result.stdout.decode().strip()
+            if http_code in ["204", "200"]:
+                return {"success": True, "latency": latency}
+        
+        return {"success": False, "latency": 999999}
+    
     except Exception as e:
-        logging.debug(f"ProxyIP {ip}:{port} 测试失败: {e}")
+        logging.debug(f"代理 {host}:{port} 测试失败: {e}")
         return {"success": False, "latency": 999999}
 
 # =========================
-# 获取该地区的最佳 ProxyIP 代理（top 3）
+# 获取该地区的最佳代理（top 3）
 # =========================
 
 def get_proxies(region):
-    domains = REGION_DOMAINS.get(region, [])
-    if not domains:
-        logging.warning(f"{region} 无 ProxyIP 域名")
+    """
+    获取指定地区的最佳代理（测试后选出延迟最低的前3个）
+    """
+    # 从 Proxifly 获取代理列表
+    proxies = fetch_proxifly_proxies(region)
+    
+    if not proxies:
+        logging.warning(f"{region} 无可用代理")
         return []
-
-    all_ips = []
-    for domain in domains:
-        ips = resolve_domain(domain)
-        all_ips.extend(ips)
-
-    all_ips = list(set(all_ips))  # 去重
-    logging.info(f"{region} 解析到 {len(all_ips)} 个 IP")
-
-    if not all_ips:
-        return []
-
-    # 并行测试有效性和延迟
+    
+    # 限制测试数量（最多测试前50个，避免耗时过长）
+    test_proxies = proxies[:50] if len(proxies) > 50 else proxies
+    
+    logging.info(f"{region} 开始测试 {len(test_proxies)} 个代理...")
+    
+    # 并行测试代理
     results = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [executor.submit(test_proxy_latency, ip) for ip in all_ips]
-        for future, ip in zip(as_completed(futures), all_ips):
-            r = future.result()
-            if r["success"]:
-                results.append({
-                    "host": ip.strip("[]"),
-                    "port": 443,
-                    "type": "http",
-                    "test_latency": r["latency"]
-                })
-
-    # 按延迟排序，取 top 3
+        future_to_proxy = {executor.submit(test_proxy_latency, p): p for p in test_proxies}
+        
+        for future in as_completed(future_to_proxy):
+            proxy = future_to_proxy[future]
+            try:
+                test_result = future.result()
+                if test_result["success"] and test_result["latency"] < PROXY_MAX_LATENCY:
+                    results.append({
+                        "host": proxy["host"],
+                        "port": proxy["port"],
+                        "type": proxy["type"],
+                        "test_latency": test_result["latency"]
+                    })
+            except Exception as e:
+                logging.debug(f"代理测试异常: {e}")
+    
+    # 按延迟排序，选出最佳的3个
     results.sort(key=lambda x: x["test_latency"])
-    best = results[:MAX_PROXIES_PER_REGION]
-
-    logging.info(f"{region} 选出 {len(best)} 个最佳 ProxyIP 代理")
-    return best
+    best_proxies = results[:MAX_PROXIES_PER_REGION]
+    
+    logging.info(f"✓ {region} 选出 {len(best_proxies)} 个最佳代理:")
+    for i, p in enumerate(best_proxies, 1):
+        logging.info(f"  {i}. {p['host']}:{p['port']} - {p['test_latency']}ms")
+    
+    return best_proxies
 
 # =========================
-# IP 测试函数（保持原样）
+# IP 测试函数
 # =========================
 
 def curl_test_with_proxy(ip, domain, proxy=None):
@@ -309,7 +351,7 @@ def test_ip_with_proxy(ip, proxy=None):
     return records
 
 # =========================
-# 工具函数（保持原样）
+# 工具函数
 # =========================
 
 def fetch_cf_ipv4_cidrs():
@@ -373,7 +415,7 @@ def aggregate_nodes(raw):
     return nodes
 
 # =========================
-# 分地区扫描（保持原样）
+# 分地区扫描
 # =========================
 
 def scan_region(region, ips, proxies):
@@ -440,8 +482,9 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     
     logging.info(f"\n{'#'*60}")
-    logging.info(f"# Cloudflare IP 优选扫描器 (改进版)")
-    logging.info(f"# 代理来源: ProxyIP.*.CMLiussss.net 域名解析出的 IP (每个地区选 top 3)")
+    logging.info(f"# Cloudflare IP 优选扫描器 (Proxifly版)")
+    logging.info(f"# 代理来源: proxifly/free-proxy-list")
+    logging.info(f"# 每个地区选出延迟最低的 {MAX_PROXIES_PER_REGION} 个代理")
     logging.info(f"# 每个地区输出 top {MAX_OUTPUT_PER_REGION} 个优选 IP")
     logging.info(f"{'#'*60}\n")
     
@@ -463,7 +506,7 @@ def main():
         region_ips = all_test_ips[ip_offset:ip_offset + sample_size]
         ip_offset += sample_size
         
-        # 获取该地区的 ProxyIP 代理（top 3）
+        # 获取该地区的最佳代理（top 3）
         proxies = get_proxies(region)
         
         # 扫描
@@ -530,7 +573,6 @@ def main():
             },
             "nodes": all_nodes[:200]  # 只保存前200个
         }, f, indent=2)
-    
     
     # 打印统计
     print("\n" + "="*60)
