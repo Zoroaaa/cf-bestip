@@ -38,7 +38,7 @@ REGION_WHITELIST = {
 }
 
 MAX_OUTPUT_PER_REGION = 32
-GOOD_SCORE_THRESHOLD = 0.785
+GOOD_SCORE_THRESHOLD = 0.75
 
 # =========================
 # COLO → Region
