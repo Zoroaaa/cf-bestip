@@ -1,299 +1,207 @@
 
-CF IP Auto Selector
+Cloudflare 优选 IP 探测与评分工具
 
-一个基于 Cloudflare Trace 机制 的自动化 IP 质量评估与筛选工具，
-通过 多入口视角 + 延迟 + 稳定性评分模型，筛选出更真实、更稳定、更具实用价值的 Cloudflare 边缘 IP。
+项目简介
 
-项目每日自动运行，并将结果发布至 GitHub Pages，适用于代理节点优选、网络质量评估等场景。
+这是一个用于 Cloudflare IPv4 Anycast IP 探测、测速、评分与区域归类 的自动化工具。
+
+项目目标并不是“跑满全球节点”，而是通过 真实 TLS 握手 + 多视角测速 + 稳定性评分 的方式，筛选出 在当前运行环境下实际可用、延迟低、稳定性较好的 Cloudflare IP，为后续代理、反代、Worker、订阅生成等场景提供可靠的 IP 数据来源。
+
+本工具 不依赖 Cloudflare API，完全基于公开 IP 段与真实网络请求结果，具备较强的现实参考价值。
 
 
 ---
 
-一、项目核心目标
+核心功能
 
-传统 Cloudflare IP“测速优选”常见问题：
+1. Cloudflare IPv4 段获取
 
-单入口测速，结果高度依赖路径
+自动从 Cloudflare 官方地址获取 IPv4 CIDR 列表
 
-偶然命中快 IP，稳定性不可复现
+保证 IP 来源权威、实时
 
-POP 偏置严重，实际使用体验不一致
-
-
-本项目的目标是解决这些问题：
-
-> 用最小但充分的多视角观测，
-过滤“假快 IP”，
-输出可长期使用的稳定候选 IP。
-
+避免硬编码或第三方维护列表失效问题
 
 
 
 ---
 
-二、核心设计思想
+2. 按 CIDR 权重随机抽样 IP
 
-1️⃣ 多 Trace Domain（多入口视角）
+根据每个 CIDR 的地址规模进行 加权随机抽样
 
-项目使用 多个绑定至同一 Cloudflare Worker 的 trace_domain：
+避免小段 IP 被过度放大
 
-sptest.ittool.pp.ua
-sptest1.ittool.pp.ua
-sptest2.ittool.pp.ua
-
-每个 domain 代表一个独立入口上下文，用于验证：
-
-是否存在路径依赖
-
-是否为单 POP 偶然快
-
-是否具备跨入口稳定性
+保证整体抽样分布更贴近真实 Cloudflare 网络结构
 
 
-> 3 个视角是最小可判别集：
-可以定位异常视角，而不过度增加采样成本。
+默认抽样规模：
 
-
+SAMPLE_SIZE = 1000
 
 
 ---
 
-2️⃣ Cloudflare Trace + cf-ray 解析
+3. 多视角 Trace 域名测试
 
-每次请求：
+通过多个不同的测速域名（Trace Domain），对同一 IP 进行多次测试：
 
-使用 curl --resolve 强制命中指定 IP
-
-请求 Worker 返回的 Trace 页面
-
-从 cf-ray 中提取 POP / Colo 信息
-
-
-示例：
-
-cf-ray: 7c1b9f8c9d2aHKG
-
-解析得到：
-
-Colo：HKG
-
-Region：HK
-
-
-
----
-
-3️⃣ 地区映射与白名单过滤
-
-通过内置 COLO → Region 映射：
-
-将 Cloudflare POP 转换为区域标签（HK / SG / JP / US 等）
-
-仅输出关注地区的结果
-
-避免低价值或不可控区域干扰结果
-
-
-
----
-
-三、IP 评分模型（核心）
-
-🎯 评分目标
-
-> 综合评估一个 IP 在 多个入口视角下的真实性能与稳定性
-
-
-## IP 历史状态管理（Day-N）
-
-项目采用 **按天独立状态文件** 的方式保存 IP 稳定度：
-
-data/
-  ip_state_YYYY-MM-DD.json
-
-- 每次运行自动生成当天状态文件
-- 自动清理 7 天前的历史文件
-- 无需手动创建目录或文件
-- 支持完整回溯与调试
-
-EMA 仅依赖前一日状态，因此历史文件采用滑动窗口方式保存，
-不会影响评分连续性。
-
-
----
-
-1️⃣ 基础延迟评分（单视角）
-
-对每个视角的延迟进行归一化处理：
-
-LatencyScore = max(0, 1 - latency / LATENCY_LIMIT)
-
-延迟越低，得分越高
-
-超过阈值直接视为 0 分
-
-
-
----
-
-2️⃣ 多视角聚合评分
-
-对同一 IP 在多个 trace_domain 下的结果进行聚合：
-
-AvgLatencyScore = mean(LatencyScore_v0, v1, v2)
-
-
----
-
-3️⃣ 稳定性惩罚因子（关键）
-
-如果同一 IP 在不同视角之间存在明显波动：
-
-StabilityPenalty = 1 - (std(latencies) / LATENCY_LIMIT)
-
-延迟越一致，惩罚越小
-
-波动越大，整体评分被明显拉低
-
-
-
----
-
-4️⃣ 最终 IP 评分公式
-
-FinalScore = AvgLatencyScore × StabilityPenalty
-
-评分范围：0 ~ 1
-
-> 这是一个“偏保守”的评分模型
-宁可错过偶然快 IP，也不放过不稳定 IP。
-
-
-
-
----
-
-四、输出结果说明
-
-1️⃣ 全量文本输出
-
-public/ip_all.txt
-
-格式：
-
-IP:PORT#REGION-LATENCYms
-
-示例：
-
-162.159.192.10:443#HK-112ms
-
-
----
-
-2️⃣ 按地区输出（限量）
-
-public/ip_HK.txt
-public/ip_SG.txt
-public/ip_JP.txt
-...
-
-每个地区最多输出 MAX_OUTPUT_PER_REGION
-
-已按评分 / 延迟排序
-
-
-
----
-
-3️⃣ 全量 JSON 数据（分析用）
-
-public/ip_all.json
-
-包含字段：
-
-{
-  "ip": "162.159.x.x",
-  "latency": 112,
-  "colo": "HKG",
-  "region": "HK",
-  "score": 0.87,
-  "views": {
-    "v0": 108,
-    "v1": 115,
-    "v2": 113
-  }
+TRACE_DOMAINS = {
+    "v0": "sptest.ittool.pp.ua",
+    "v1": "sptest1.ittool.pp.ua",
+    "v2": "sptest2.ittool.pp.ua",
 }
 
-适用于：
+每个 IP 会被测试多个视角，用于判断：
 
-二次分析
+是否偶发可用
 
-趋势统计
+是否存在明显抖动
 
-历史对比（后续扩展）
-
-
-
----
-
-五、自动化运行机制
-
-GitHub Actions
-
-每日定时运行
-
-手动触发支持
-
-自动发布至 gh-pages
-
-
-on:
-  schedule:
-    - cron: "0 3 * * *"
-  workflow_dispatch:
-
-
----
-
-六、项目适用场景
-
-Cloudflare Worker / Argo Tunnel 出口优选
-
-代理节点质量筛选
-
-CF 边缘网络质量研究
-
-网络路径稳定性分析
+是否具备稳定连接能力
 
 
 
 ---
 
-七、设计取向说明
+4. 真实 TLS 连接测速（非 Ping）
 
-❌ 不追求极限低延迟
+每次测试均通过 curl 发起真实 HTTPS 请求：
 
-❌ 不迷信单次测速
+强制 TLS 1.3
 
-✅ 优先稳定性
+HTTP/1.1
 
-✅ 优先可复现结果
+完整 TCP + TLS 握手过程
 
-✅ 优先工程可解释性
+获取：
+
+time_connect
+
+time_appconnect
+
+HTTP 状态码
+
+
+
+最终延迟计算方式：
+
+latency = (TCP连接时间 + TLS握手时间) × 1000
+
+这比 ICMP Ping 更贴近真实代理使用场景。
+
+
+---
+
+5. Cloudflare 节点识别（COLO → Region）
+
+从响应头中解析 cf-ray
+
+提取 Cloudflare COLO 代码（如 HKG / NRT / LAX）
+
+映射为区域代码（HK / JP / US 等）
+
+
+示例：
+
+cf-ray: 8c1234567890abcd-HKG
+
+映射后：
+
+colo = HKG
+region = HK
+
+
+---
+
+6. 延迟与稳定性评分体系
+
+每个 IP 会基于多个维度计算综合评分：
+
+评分因子
+
+1. 可用视角比例（稳定性）
+
+
+2. 多次测试延迟波动（一致性）
+
+
+3. 最低延迟表现（性能）
+
+
+
+评分公式（逻辑简化说明）：
+
+score = 稳定性 × 一致性 × 延迟表现
+
+评分范围：0 ~ 1
+分数越高，说明该 IP 更稳定、延迟更低
+
+
+---
+
+7. 区域白名单控制
+
+只保留指定区域的 IP，避免无效或不可控地区：
+
+REGION_WHITELIST = {
+    "HK", "SG", "JP", "KR",
+    "US", "DE", "UK",
+    "TW", "AU", "CA"
+}
+
+这对于代理、反代、订阅生成非常关键。
+
+
+---
+
+8. 区域级数量上限控制
+
+每个区域最多输出指定数量的 IP，防止某一区域“刷屏”：
+
+MAX_OUTPUT_PER_REGION = 32
+
+适合后续做：
+
+订阅节点生成
+
+负载均衡池
+
+Worker / Argo Tunnel 入口池
 
 
 
 ---
 
-八、后续可扩展方向（规划）
+9. 结果结构化输出（面向后处理）
 
-多日历史评分（IP 生存周期）
+每个节点包含以下核心信息：
 
-自动淘汰机制
+{
+  "ip": "x.x.x.x",
+  "port": 443,
+  "region": "JP",
+  "colo": "NRT",
+  "latencies": [120, 135, 128],
+  "score": 0.82
+}
 
-不同地区权重模型
+为后续功能（如订阅生成、历史对比、自动淘汰）预留空间。
 
-并行 Worker 多入口 CI
+
+---
+
+适用场景
+
+Cloudflare 优选 IP 探测
+
+VMess / VLESS / Trojan 节点入口筛选
+
+Cloudflare Worker / Pages 反代入口
+
+自动化订阅生成前置数据源
+
+对 GitHub Actions / CI 出口网络进行真实测速
 
 
 ---
