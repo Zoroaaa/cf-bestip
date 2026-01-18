@@ -9,7 +9,8 @@ import logging
 import socket
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
+import statistics
 
 # =========================
 # 配置日志
@@ -467,14 +468,21 @@ def score_ip(latencies):
     if len(latencies) < 2:
         return 0
     
-    lat_min = min(latencies)
-    lat_max = max(latencies)
-    
+    # 稳定性：成功比例（不变）
     s_stability = len(latencies) / len(TRACE_DOMAINS)
-    s_consistency = max(0.3, 1 - (lat_max - lat_min) / LATENCY_LIMIT)
-    s_latency = 1 / (1 + lat_min / 100)
     
-    return round(s_stability * s_consistency * s_latency, 4)
+    # 一致性：用标准差代替简单max-min，更统计学意义
+    lat_mean = statistics.mean(latencies)
+    lat_stdev = statistics.stdev(latencies) if len(latencies) > 1 else 0
+    s_consistency = max(0.3, 1 - (lat_stdev / (LATENCY_LIMIT / 2)))  # 标准差阈值调整为LATENCY_LIMIT/2
+    
+    # 延迟：用中位数代替最小（更抗异常），并用指数衰减（低延迟更敏感）
+    lat_median = statistics.median(latencies)
+    s_latency = 1 / (1 + (lat_median / 100)**1.2)  # 指数1.2让低延迟更突出
+    
+    # 总分：加权求和
+    score = 0.4 * s_stability + 0.3 * s_consistency + 0.3 * s_latency
+    return round(score, 4)
 
 def aggregate_nodes(raw):
     ip_map = defaultdict(list)
@@ -499,6 +507,90 @@ def aggregate_nodes(raw):
         })
     
     return nodes
+
+# =========================
+# 历史IP管理函数
+# =========================
+
+HISTORICAL_FILE = f"{OUTPUT_DIR}/historical_ips.json"
+MAX_HISTORICAL_PER_REGION = 200  # 每个地区历史IP上限
+FAIL_COUNT_THRESHOLD = 3  # 连续失败阈值
+VALIDATION_DAYS_THRESHOLD = 7  # 如果超过7天未测，强制验证
+VALIDATION_SAMPLE_LIMIT = 50  # 每个地区最多验证50个旧IP
+
+def load_historical_ips():
+    if os.path.exists(HISTORICAL_FILE):
+        with open(HISTORICAL_FILE, "r") as f:
+            return json.load(f)
+    else:
+        return {region: [] for region in REGION_CONFIG.keys()}
+
+def save_historical_ips(historical):
+    with open(HISTORICAL_FILE, "w") as f:
+        json.dump(historical, f, indent=2)
+
+def merge_new_to_historical(historical, new_nodes, current_time, scan_source):
+    for node in new_nodes:
+        region = node["region"]
+        ip_key = node["ip"]
+        existing = next((item for item in historical[region] if item["ip"] == ip_key), None)
+        if existing:
+            existing["score"] = node["score"]
+            existing["last_tested"] = current_time
+            existing["fail_count"] = 0
+            existing["source"] = scan_source
+            existing["port"] = node["port"]
+        else:
+            historical[region].append({
+                "ip": ip_key,
+                "port": node["port"],
+                "score": node["score"],
+                "last_tested": current_time,
+                "fail_count": 0,
+                "source": scan_source
+            })
+    # 限制历史大小
+    for region in historical:
+        historical[region] = sorted(historical[region], key=lambda x: x["score"], reverse=True)[:MAX_HISTORICAL_PER_REGION]
+
+def validate_historical_ips(historical, proxies):
+    current_time = datetime.utcnow().isoformat() + "Z"
+    current_dt = datetime.fromisoformat(current_time[:-1])  # 移除Z
+    for region, ips in historical.items():
+        to_validate = []
+        for ip_entry in ips:
+            last_tested_dt = datetime.fromisoformat(ip_entry["last_tested"][:-1]) if "last_tested" in ip_entry else datetime.min
+            if (current_dt - last_tested_dt).days > VALIDATION_DAYS_THRESHOLD:
+                to_validate.append(ip_entry)
+        # 限量验证
+        to_validate = to_validate[:VALIDATION_SAMPLE_LIMIT]
+        if not to_validate:
+            continue
+        logging.info(f"验证 {region} 的 {len(to_validate)} 个历史IP...")
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = []
+            for ip_entry in to_validate:
+                proxy = random.choice(proxies) if proxies else None
+                futures.append(executor.submit(test_ip_with_proxy, ip_entry["ip"], proxy))
+            for future, ip_entry in zip(as_completed(futures), to_validate):
+                try:
+                    records = future.result()
+                    if records:
+                        latencies = [r["latency"] for r in records]
+                        new_score = score_ip(latencies)
+                        if new_score > 0:
+                            ip_entry["score"] = new_score
+                            ip_entry["last_tested"] = current_time
+                            ip_entry["fail_count"] = 0
+                        else:
+                            ip_entry["fail_count"] += 1
+                    else:
+                        ip_entry["fail_count"] += 1
+                except Exception as e:
+                    logging.debug(f"验证失败: {ip_entry['ip']} - {e}")
+                    ip_entry["fail_count"] += 1
+        # 移除失效IP
+        historical[region] = [ip for ip in ips if ip["fail_count"] < FAIL_COUNT_THRESHOLD]
 
 # =========================
 # 分地区扫描
@@ -580,6 +672,9 @@ def main():
     logging.info(f"# 每个地区输出 top {MAX_OUTPUT_PER_REGION} 个优选 IP")
     logging.info(f"{'#'*60}\n")
     
+    # 加载历史IP
+    historical = load_historical_ips()
+    
     # 获取 Cloudflare IP 段
     logging.info("获取 Cloudflare IP 范围...")
     cidrs = fetch_cf_ipv4_cidrs()
@@ -591,6 +686,9 @@ def main():
     
     all_results = []
     region_results = {}
+    
+    current_time = datetime.utcnow().isoformat() + "Z"
+    scan_source = f"scan_{datetime.utcnow().strftime('%Y%m%d')}"
     
     ip_offset = 0
     for region, config in REGION_CONFIG.items():
@@ -605,21 +703,36 @@ def main():
         raw = scan_region(region, region_ips, proxies)
         nodes = aggregate_nodes(raw)
         
-        region_results[region] = nodes
+        # 合并新节点到历史
+        merge_new_to_historical(historical, nodes, current_time, scan_source)
+        
+        # 验证历史IP
+        validate_historical_ips(historical, proxies)
+        
+        # 从历史中获取当前地区节点（过滤有效）
+        region_nodes = [n for n in historical[region] if n["score"] > GOOD_SCORE_THRESHOLD]
+        region_nodes.sort(key=lambda x: x["score"], reverse=True)
+        region_results[region] = region_nodes
+        
         all_results.extend(raw)
         
         logging.info(f"{'='*60}")
-        logging.info(f"✓ {region}: 发现 {len(nodes)} 个有效节点")
+        logging.info(f"✓ {region}: 历史中有效节点 {len(region_nodes)} 个")
         logging.info(f"{'='*60}\n")
         
         time.sleep(1)
     
+    # 保存更新后的历史
+    save_historical_ips(historical)
+    
     # 汇总所有节点
-    all_nodes = aggregate_nodes(all_results)
+    all_nodes = []
+    for nodes in historical.values():
+        all_nodes.extend(nodes)
     all_nodes.sort(key=lambda x: x["score"], reverse=True)
     
     logging.info(f"\n{'='*60}")
-    logging.info(f"总计发现 {len(all_nodes)} 个节点")
+    logging.info(f"总计历史有效节点 {len(all_nodes)} 个")
     logging.info(f"{'='*60}\n")
     
     # 保存总文件
@@ -630,7 +743,6 @@ def main():
    
     # 按地区保存（top 16）
     for region, nodes in region_results.items():
-        nodes.sort(key=lambda x: x["score"], reverse=True)
         top_nodes = nodes[:MAX_OUTPUT_PER_REGION]
         
         with open(f"{OUTPUT_DIR}/ip_{region}.txt", "w") as f:
