@@ -532,6 +532,10 @@ def save_historical_ips(historical):
 def merge_new_to_historical(historical, new_nodes, current_time, scan_source):
     for node in new_nodes:
         region = node["region"]
+        # 只处理已知地区
+        if region == "UNMAPPED" or region not in historical:
+            skipped += 1
+            continue
         ip_key = node["ip"]
         existing = next((item for item in historical[region] if item["ip"] == ip_key), None)
         if existing:
