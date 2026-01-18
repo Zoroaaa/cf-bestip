@@ -133,13 +133,26 @@ def fetch_proxifly_proxies(region):
             if not line or line.startswith('#'):
                 continue
             
-            # 格式: IP:PORT 或 IP:PORT:TYPE
-            parts = line.split(':')
-            if len(parts) >= 2:
-                try:
+            try:
+                # 格式: http://IP:PORT 或 socks5://IP:PORT
+                if line.startswith('http://'):
+                    proxy_type = 'http'
+                    line = line.replace('http://', '')
+                elif line.startswith('socks5://'):
+                    proxy_type = 'socks5'
+                    line = line.replace('socks5://', '')
+                elif line.startswith('socks4://'):
+                    proxy_type = 'socks4'
+                    line = line.replace('socks4://', '')
+                else:
+                    # 没有协议前缀，默认为 http
+                    proxy_type = 'http'
+                
+                # 解析 IP:PORT
+                parts = line.split(':')
+                if len(parts) >= 2:
                     host = parts[0].strip()
                     port = int(parts[1].strip())
-                    proxy_type = parts[2].strip().lower() if len(parts) > 2 else "http"
                     
                     # 验证 IP 格式
                     ipaddress.ip_address(host)
@@ -149,8 +162,9 @@ def fetch_proxifly_proxies(region):
                         "port": port,
                         "type": proxy_type
                     })
-                except (ValueError, ipaddress.AddressValueError):
-                    continue
+            except (ValueError, ipaddress.AddressValueError, IndexError):
+                logging.debug(f"跳过无效代理行: {line}")
+                continue
         
         logging.info(f"✓ {region}: 获取到 {len(proxies)} 个代理")
         return proxies
