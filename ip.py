@@ -179,8 +179,8 @@ def fetch_proxifly_proxies(region):
 
 def test_proxy_latency(proxy):
     """
-    测试代理的连通性和延迟
-    返回: {"success": True, "latency": 123} 或 {"success": False, "latency": 999999}
+    测试代理的连通性和延迟（改进版：测试 HTTPS 支持）
+    返回: {"success": True, "latency": 123, "https_ok": True/False}
     """
     host = proxy["host"]
     port = proxy["port"]
@@ -189,13 +189,13 @@ def test_proxy_latency(proxy):
     start = time.time()
     
     try:
-        # 使用 curl 测试代理
+        # 先测试 HTTP
         cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
         
-        if proxy_type == "socks5":
+        if proxy_type in ["socks5", "socks4"]:
             cmd.extend(["--socks5", f"{host}:{port}"])
         else:
-            cmd.extend(["-x", f"{host}:{port}"])
+            cmd.extend(["-x", f"http://{host}:{port}"])
         
         cmd.extend([
             "--connect-timeout", str(PROXY_TEST_TIMEOUT),
@@ -211,17 +211,44 @@ def test_proxy_latency(proxy):
         
         latency = int((time.time() - start) * 1000)
         
-        # 检查返回码
-        if result.returncode == 0:
-            http_code = result.stdout.decode().strip()
-            if http_code in ["204", "200"]:
-                return {"success": True, "latency": latency}
+        if result.returncode != 0:
+            return {"success": False, "latency": 999999, "https_ok": False}
         
-        return {"success": False, "latency": 999999}
+        http_code = result.stdout.decode().strip()
+        if http_code not in ["204", "200", "301", "302"]:
+            return {"success": False, "latency": 999999, "https_ok": False}
+        
+        # 测试 HTTPS 支持（测试能否访问 Cloudflare）
+        https_cmd = ["curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
+        
+        if proxy_type in ["socks5", "socks4"]:
+            https_cmd.extend(["--socks5", f"{host}:{port}"])
+        else:
+            https_cmd.extend(["-x", f"http://{host}:{port}"])
+        
+        https_cmd.extend([
+            "--connect-timeout", str(PROXY_TEST_TIMEOUT),
+            "--max-time", str(PROXY_TEST_TIMEOUT),
+            "https://www.cloudflare.com/cdn-cgi/trace"
+        ])
+        
+        https_result = subprocess.run(
+            https_cmd,
+            capture_output=True,
+            timeout=PROXY_TEST_TIMEOUT + 2
+        )
+        
+        https_ok = https_result.returncode == 0
+        
+        return {
+            "success": True, 
+            "latency": latency,
+            "https_ok": https_ok
+        }
     
     except Exception as e:
         logging.debug(f"代理 {host}:{port} 测试失败: {e}")
-        return {"success": False, "latency": 999999}
+        return {"success": False, "latency": 999999, "https_ok": False}
 
 # =========================
 # 获取该地区的最佳代理（top 3）
@@ -229,7 +256,7 @@ def test_proxy_latency(proxy):
 
 def get_proxies(region):
     """
-    获取指定地区的最佳代理（测试后选出延迟最低的前3个）
+    获取指定地区的最佳代理（测试后选出延迟最低且支持 HTTPS 的前3个）
     """
     # 从 Proxifly 获取代理列表
     proxies = fetch_proxifly_proxies(region)
@@ -252,7 +279,10 @@ def get_proxies(region):
             proxy = future_to_proxy[future]
             try:
                 test_result = future.result()
-                if test_result["success"] and test_result["latency"] < PROXY_MAX_LATENCY:
+                # 只选择支持 HTTPS 的代理
+                if (test_result["success"] and 
+                    test_result["https_ok"] and 
+                    test_result["latency"] < PROXY_MAX_LATENCY):
                     results.append({
                         "host": proxy["host"],
                         "port": proxy["port"],
@@ -262,13 +292,17 @@ def get_proxies(region):
             except Exception as e:
                 logging.debug(f"代理测试异常: {e}")
     
+    if not results:
+        logging.warning(f"⚠ {region} 无支持 HTTPS 的代理，将跳过代理扫描")
+        return []
+    
     # 按延迟排序，选出最佳的3个
     results.sort(key=lambda x: x["test_latency"])
     best_proxies = results[:MAX_PROXIES_PER_REGION]
     
-    logging.info(f"✓ {region} 选出 {len(best_proxies)} 个最佳代理:")
+    logging.info(f"✓ {region} 选出 {len(best_proxies)} 个支持 HTTPS 的最佳代理:")
     for i, p in enumerate(best_proxies, 1):
-        logging.info(f"  {i}. {p['host']}:{p['port']} - {p['test_latency']}ms")
+        logging.info(f"  {i}. {p['host']}:{p['port']} ({p['type']}) - {p['test_latency']}ms")
     
     return best_proxies
 
@@ -277,57 +311,65 @@ def get_proxies(region):
 # =========================
 
 def curl_test_with_proxy(ip, domain, proxy=None):
-    """使用代理测试 Cloudflare IP"""
+    """使用代理测试 Cloudflare IP（改进版：增加容错和调试）"""
     try:
         cmd = ["curl", "-k", "-o", "/dev/null", "-s"]
         
         # 添加代理
         if proxy:
             proxy_type = proxy.get('type', 'http')
-            if proxy_type == 'socks5':
+            if proxy_type in ['socks5', 'socks4']:
                 cmd.extend(["--socks5", f"{proxy['host']}:{proxy['port']}"])
             else:
-                cmd.extend(["-x", f"{proxy['host']}:{proxy['port']}"])
+                # HTTP/HTTPS 代理
+                cmd.extend(["-x", f"http://{proxy['host']}:{proxy['port']}"])
         
         cmd.extend([
             "-w", "%{time_connect} %{time_appconnect} %{http_code}",
             "--http1.1",
-            "--connect-timeout", str(CONNECT_TIMEOUT),
-            "--max-time", str(TIMEOUT),
+            "--connect-timeout", str(CONNECT_TIMEOUT + 2),  # 增加超时
+            "--max-time", str(TIMEOUT + 3),
             "--resolve", f"{domain}:443:{ip}",
             f"https://{domain}"
         ])
         
-        out = subprocess.check_output(cmd, timeout=TIMEOUT + 2, stderr=subprocess.DEVNULL)
+        out = subprocess.check_output(cmd, timeout=TIMEOUT + 5, stderr=subprocess.DEVNULL)
         parts = out.decode().strip().split()
         
         if len(parts) < 3:
             return None
         
         tc, ta, code = parts[0], parts[1], parts[2]
-        latency = int((float(tc) + float(ta)) * 1000)
         
-        if latency > LATENCY_LIMIT or code in ["000", "0"]:
+        # 放宽条件：接受更多 HTTP 状态码
+        if code in ["000", "0"]:
             return None
         
-        # 获取 CF-Ray
+        latency = int((float(tc) + float(ta)) * 1000)
+        
+        if latency > LATENCY_LIMIT:
+            return None
+        
+        # 获取 CF-Ray（增加重试逻辑）
         hdr_cmd = ["curl", "-k", "-sI"]
         
         if proxy:
             proxy_type = proxy.get('type', 'http')
-            if proxy_type == 'socks5':
+            if proxy_type in ['socks5', 'socks4']:
                 hdr_cmd.extend(["--socks5", f"{proxy['host']}:{proxy['port']}"])
             else:
-                hdr_cmd.extend(["-x", f"{proxy['host']}:{proxy['port']}"])
+                hdr_cmd.extend(["-x", f"http://{proxy['host']}:{proxy['port']}"])
         
         hdr_cmd.extend([
+            "--connect-timeout", str(CONNECT_TIMEOUT + 2),
+            "--max-time", str(TIMEOUT + 3),
             "--resolve", f"{domain}:443:{ip}",
             f"https://{domain}"
         ])
         
         hdr = subprocess.check_output(
             hdr_cmd,
-            timeout=TIMEOUT,
+            timeout=TIMEOUT + 3,
             stderr=subprocess.DEVNULL
         ).decode(errors="ignore").lower()
         
@@ -338,6 +380,8 @@ def curl_test_with_proxy(ip, domain, proxy=None):
                 break
         
         if not ray:
+            # 没有 CF-Ray 也记录结果（可能是中转节点）
+            logging.debug(f"IP {ip} 无 CF-Ray，可能不是 Cloudflare 节点")
             return None
         
         colo = ray.split("-")[-1].upper()
@@ -352,7 +396,11 @@ def curl_test_with_proxy(ip, domain, proxy=None):
             "proxy": f"{proxy['host']}:{proxy['port']}" if proxy else "direct"
         }
     
-    except Exception:
+    except subprocess.TimeoutExpired:
+        logging.debug(f"测试超时: {ip} via {proxy['host'] if proxy else 'direct'}")
+        return None
+    except Exception as e:
+        logging.debug(f"测试失败: {ip} - {e}")
         return None
 
 def test_ip_with_proxy(ip, proxy=None):
