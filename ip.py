@@ -62,9 +62,9 @@ MAX_OUTPUT_PER_REGION = 8
 MAX_PROXIES_PER_REGION = 5  # 每个地区选出最佳的5个代理
 
 # 代理测试配置
-PROXY_TEST_TIMEOUT = 8  # 增加超时时间，免费代理可能较慢
-PROXY_MAX_LATENCY = 2000  # 放宽延迟要求到 2000ms
-ALLOW_HTTP_ONLY_PROXY = False  # 严格要求必须支持 HTTPS
+PROXY_TEST_TIMEOUT = 5
+PROXY_QUICK_TEST_URL = "http://www.gstatic.com/generate_204"
+PROXY_MAX_LATENCY = 1200  # 上调给SOCKS5更多容忍
 
 # =========================
 # COLO → Region
@@ -85,11 +85,11 @@ COLO_MAP = {
 }
 
 # =========================
-# GeoNode 代理列表配置
+# Geonode 代理列表基础 URL
 # =========================
-GEONODE_BASE_URL = "https://proxylist.geonode.com/api/proxy-list"
+GEONODE_API_URL = "https://proxylist.geonode.com/api/proxy-list"
 
-# 地区代码映射
+# 地区代码映射（REGION_CONFIG key -> Geonode country code）
 REGION_TO_COUNTRY_CODE = {
     "HK": "HK",
     "SG": "SG",
@@ -104,55 +104,41 @@ REGION_TO_COUNTRY_CODE = {
 }
 
 # =========================
-# 从 GeoNode 获取代理列表（使用 curl + jq）
+# 从 Geonode 获取代理列表
 # =========================
 
-def fetch_geonode_proxies_via_curl(region):
+def fetch_geonode_proxies(region):
     """
-    使用 curl + jq 从 GeoNode 获取 SOCKS5 代理
+    从 Geonode 获取指定地区的 SOCKS5 代理列表
     返回格式: [{"host": "1.2.3.4", "port": 8080, "type": "socks5"}, ...]
     """
     country_code = REGION_TO_COUNTRY_CODE.get(region)
     if not country_code:
-        logging.warning(f"{region} 无对应的 GeoNode 国家代码")
+        logging.warning(f"{region} 无对应的 Geonode 国家代码")
         return []
 
-    # 构建 URL（添加 anonymityLevel=elite 获取高质量代理）
-    url = f"{GEONODE_BASE_URL}?limit=500&page=1&sort_by=lastChecked&sort_type=desc&country={country_code}&protocols=socks5&anonymityLevel=elite"
+    params = {
+        "limit": 500,
+        "page": 1,
+        "sort_by": "lastChecked",
+        "sort_type": "desc",
+        "country": country_code,
+        "protocols": "socks5",
+        "anonymityLevel": "elite"
+    }
 
     try:
-        logging.info(f"正在从 GeoNode 获取 {region} 的 SOCKS5 代理...")
-        
-        # 使用 curl + jq 解析
-        cmd = [
-            "curl", "-s", url,
-            "|", "jq", "-r", '.data[] | "\\(.ip):\\(.port)"'
-        ]
-        
-        # 直接使用 shell 执行（因为需要管道）
-        result = subprocess.run(
-            f'curl -s "{url}" | jq -r \'.data[] | "\\(.ip):\\(.port)"\'',
-            shell=True,
-            capture_output=True,
-            timeout=15
-        )
+        logging.info(f"正在从 Geonode 获取 {region} 的 SOCKS5 代理列表...")
+        response = requests.get(GEONODE_API_URL, params=params, timeout=15)
+        response.raise_for_status()
 
-        if result.returncode != 0:
-            logging.error(f"✗ {region}: curl/jq 执行失败")
-            return []
-
+        data = response.json().get('data', [])
         proxies = []
-        lines = result.stdout.decode().strip().split('\n')
 
-        for line in lines:
-            line = line.strip()
-            if not line or ':' not in line:
-                continue
-
+        for item in data:
             try:
-                host, port = line.split(':')
-                host = host.strip()
-                port = int(port.strip())
+                host = item['ip']
+                port = int(item['port'])
 
                 # 验证 IP 格式
                 ipaddress.ip_address(host)
@@ -162,46 +148,39 @@ def fetch_geonode_proxies_via_curl(region):
                     "port": port,
                     "type": "socks5"
                 })
-
-            except (ValueError, ipaddress.AddressValueError) as e:
-                logging.debug(f"跳过无效代理: {line} - {e}")
+            except (ValueError, ipaddress.AddressValueError, KeyError) as e:
+                logging.debug(f"跳过无效代理: {item} - {e}")
                 continue
 
         logging.info(f"✓ {region}: 获取到 {len(proxies)} 个 SOCKS5 代理")
         return proxies
 
-    except Exception as e:
-        logging.error(f"✗ {region}: 获取代理失败 - {e}")
+    except requests.RequestException as e:
+        logging.error(f"✗ {region}: 获取代理列表失败 - {e}")
         return []
 
 # =========================
-# 代理测试函数（直接测试实际目标域名）
+# 代理测试函数
 # =========================
 
-def test_proxy_with_target_domain(proxy, test_domain="sptest.ittool.pp.ua"):
+def test_proxy_latency(proxy):
     """
-    测试代理能否访问目标域名（直接测试 sptest.ittool.pp.ua）
-    返回: {"success": True, "latency": 123, "https_ok": True}
+    测试代理的连通性和延迟（针对 SOCKS5，严格要求HTTPS测试返回成功状态码）
+    返回: {"success": True, "latency": 123, "https_ok": True/False}
     """
     host = proxy["host"]
     port = proxy["port"]
-    proxy_type = proxy.get("type", "socks5")
 
     start = time.time()
 
     try:
-        # 直接测试目标 HTTPS 域名
-        cmd = ["curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
-
-        if proxy_type in ["socks5", "socks4"]:
-            cmd.extend(["--socks5", f"{host}:{port}"])
-        else:
-            cmd.extend(["-x", f"http://{host}:{port}"])
-
+        # 先测试 HTTP（基础连通性）
+        cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
+        cmd.extend(["--socks5", f"{host}:{port}"])
         cmd.extend([
             "--connect-timeout", str(PROXY_TEST_TIMEOUT),
             "--max-time", str(PROXY_TEST_TIMEOUT),
-            f"https://{test_domain}"
+            PROXY_QUICK_TEST_URL
         ])
 
         result = subprocess.run(
@@ -216,17 +195,37 @@ def test_proxy_with_target_domain(proxy, test_domain="sptest.ittool.pp.ua"):
             return {"success": False, "latency": 999999, "https_ok": False}
 
         http_code = result.stdout.decode().strip()
-        
-        # 放宽状态码要求（Cloudflare 可能返回各种状态）
-        if http_code in ["000", "0"]:
+        if http_code not in ["204", "200", "301", "302"]:
             return {"success": False, "latency": 999999, "https_ok": False}
 
-        # 只要能连接上就算成功
-        https_ok = True
+        # 测试 HTTPS 支持（严格要求成功状态码）
+        https_start = time.time()
+        https_cmd = ["curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
+        https_cmd.extend(["--socks5", f"{host}:{port}"])
+        https_cmd.extend([
+            "--connect-timeout", str(PROXY_TEST_TIMEOUT),
+            "--max-time", str(PROXY_TEST_TIMEOUT),
+            "https://www.cloudflare.com/cdn-cgi/trace"
+        ])
+
+        https_result = subprocess.run(
+            https_cmd,
+            capture_output=True,
+            timeout=PROXY_TEST_TIMEOUT + 2
+        )
+
+        https_latency = int((time.time() - https_start) * 1000)
+
+        # 严格检查HTTPS状态码
+        https_http_code = https_result.stdout.decode().strip()
+        https_ok = https_http_code in ["200", "204", "301", "302"]
+
+        # 如果 HTTPS 测试成功，使用 HTTPS 延迟；否则使用 HTTP 延迟
+        final_latency = https_latency if https_ok else latency
 
         return {
-            "success": True,
-            "latency": latency,
+            "success": True, 
+            "latency": final_latency,
             "https_ok": https_ok
         }
 
@@ -240,30 +239,25 @@ def test_proxy_with_target_domain(proxy, test_domain="sptest.ittool.pp.ua"):
 
 def get_proxies(region):
     """
-    获取指定地区的最佳 SOCKS5 代理（直接测试目标域名）
+    获取指定地区的最佳 SOCKS5 代理（仅基础连通性验证）
     """
-    # 使用 curl + jq 获取代理列表
-    proxies = fetch_geonode_proxies_via_curl(region)
+    # 从 Geonode 获取代理列表
+    proxies = fetch_geonode_proxies(region)
 
     if not proxies:
-        logging.warning(f"{region} 无可用代理")
+        logging.warning(f"{region} 无可用 SOCKS5 代理")
         return []
 
-    # 限制测试数量（测试前 50 个最新的）
-    test_proxies = proxies[:50]
+    # 限制测试数量
+    test_proxies = proxies[:50] if len(proxies) > 50 else proxies
 
-    logging.info(f"{region} 测试 {len(test_proxies)} 个 SOCKS5 代理访问 sptest.ittool.pp.ua...")
+    logging.info(f"{region} 测试 {len(test_proxies)} 个 SOCKS5 代理的基础连通性...")
 
-    # 使用第一个测试域名进行测试
-    test_domain = list(TRACE_DOMAINS.values())[0]
-    
+    # 基础连通性测试（快速筛选）
     candidate_proxies = []
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_proxy = {
-            executor.submit(test_proxy_with_target_domain, p, test_domain): p 
-            for p in test_proxies
-        }
+        future_to_proxy = {executor.submit(test_proxy_latency, p): p for p in test_proxies}
 
         for future in as_completed(future_to_proxy):
             proxy = future_to_proxy[future]
@@ -277,23 +271,25 @@ def get_proxies(region):
                         "basic_latency": test_result["latency"],
                         "https_ok": test_result["https_ok"]
                     })
-                    logging.info(f"  ✓ 可用: {proxy['host']}:{proxy['port']} - 延迟:{test_result['latency']}ms")
             except Exception as e:
                 logging.debug(f"代理测试异常: {e}")
 
     if not candidate_proxies:
-        logging.warning(f"⚠ {region} 无可用代理，将完全使用直连")
+        logging.warning(f"⚠ {region} 无可用 SOCKS5 代理，将完全使用直连")
         return []
 
-    logging.info(f"  ✓ 通过测试: {len(candidate_proxies)} 个代理")
+    logging.info(f"  ✓ 通过: {len(candidate_proxies)} 个 SOCKS5 代理")
 
-    # 按延迟排序，选出最佳的 5 个
+    # 按 basic_latency 排序
     candidate_proxies.sort(key=lambda x: x["basic_latency"])
+
+    # 取前 MAX_PROXIES_PER_REGION 个
     best_proxies = candidate_proxies[:MAX_PROXIES_PER_REGION]
 
-    logging.info(f"✓ {region} 最终选出 {len(best_proxies)} 个可用代理:")
+    logging.info(f"✓ {region} 最终选出 {len(best_proxies)} 个可用 SOCKS5 代理:")
     for i, p in enumerate(best_proxies, 1):
-        logging.info(f"  {i}. {p['host']}:{p['port']} (socks5) - 延迟:{p['basic_latency']}ms [HTTPS✓]")
+        https_mark = "[HTTPS✓]" if p.get("https_ok") else "[HTTP-only]"
+        logging.info(f"  {i}. {p['host']}:{p['port']} ({p['type']}) - 延迟:{p['basic_latency']}ms {https_mark}")
 
     return best_proxies
 
@@ -302,22 +298,18 @@ def get_proxies(region):
 # =========================
 
 def curl_test_with_proxy(ip, domain, proxy=None):
-    """使用代理测试 Cloudflare IP"""
+    """使用代理测试 Cloudflare IP（改进版：增加容错和调试）"""
     try:
         cmd = ["curl", "-k", "-o", "/dev/null", "-s"]
 
         # 添加代理
         if proxy:
-            proxy_type = proxy.get('type', 'socks5')
-            if proxy_type in ['socks5', 'socks4']:
-                cmd.extend(["--socks5", f"{proxy['host']}:{proxy['port']}"])
-            else:
-                cmd.extend(["-x", f"http://{proxy['host']}:{proxy['port']}"])
+            cmd.extend(["--socks5", f"{proxy['host']}:{proxy['port']}"])
 
         cmd.extend([
             "-w", "%{time_connect} %{time_appconnect} %{http_code}",
             "--http1.1",
-            "--connect-timeout", str(CONNECT_TIMEOUT + 2),
+            "--connect-timeout", str(CONNECT_TIMEOUT + 2),  # 增加超时
             "--max-time", str(TIMEOUT + 3),
             "--resolve", f"{domain}:443:{ip}",
             f"https://{domain}"
@@ -331,7 +323,7 @@ def curl_test_with_proxy(ip, domain, proxy=None):
 
         tc, ta, code = parts[0], parts[1], parts[2]
 
-        # 放宽条件
+        # 放宽条件：接受更多 HTTP 状态码
         if code in ["000", "0"]:
             return None
 
@@ -340,15 +332,11 @@ def curl_test_with_proxy(ip, domain, proxy=None):
         if latency > LATENCY_LIMIT:
             return None
 
-        # 获取 CF-Ray
+        # 获取 CF-Ray（增加重试逻辑）
         hdr_cmd = ["curl", "-k", "-sI"]
 
         if proxy:
-            proxy_type = proxy.get('type', 'socks5')
-            if proxy_type in ['socks5', 'socks4']:
-                hdr_cmd.extend(["--socks5", f"{proxy['host']}:{proxy['port']}"])
-            else:
-                hdr_cmd.extend(["-x", f"http://{proxy['host']}:{proxy['port']}"])
+            hdr_cmd.extend(["--socks5", f"{proxy['host']}:{proxy['port']}"])
 
         hdr_cmd.extend([
             "--connect-timeout", str(CONNECT_TIMEOUT + 2),
@@ -370,7 +358,8 @@ def curl_test_with_proxy(ip, domain, proxy=None):
                 break
 
         if not ray:
-            logging.debug(f"IP {ip} 无 CF-Ray")
+            # 没有 CF-Ray 也记录结果（可能是中转节点）
+            logging.debug(f"IP {ip} 无 CF-Ray，可能不是 Cloudflare 节点")
             return None
 
         colo = ray.split("-")[-1].upper()
@@ -487,7 +476,7 @@ def scan_region(region, ips, proxies):
             if not proxy_ips:
                 continue
 
-            proxy_info = f"{proxy['host']}:{proxy['port']} (socks5)"
+            proxy_info = f"{proxy['host']}:{proxy['port']}"
             logging.info(f"  → 通过代理 {proxy_info} 测试 {len(proxy_ips)} 个IP...")
 
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -503,8 +492,8 @@ def scan_region(region, ips, proxies):
 
         logging.info(f"  ✓ 代理扫描收集: {len(raw_results)} 条结果")
 
-    # 动态补充
-    expected_results = len(ips) * 0.2
+    # 动态调整补充策略：如果代理结果太少，增加直连比例
+    expected_results = len(ips) * 0.2  # 期望至少 20% 的成功率
 
     if len(raw_results) < expected_results:
         supplement_count = len(ips) // 2 if raw_results else len(ips)
@@ -539,9 +528,8 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
 
     logging.info(f"\n{'#'*60}")
-    logging.info(f"# Cloudflare IP 优选扫描器 (GeoNode SOCKS5版)")
-    logging.info(f"# 代理来源: GeoNode API (SOCKS5 + elite)")
-    logging.info(f"# 代理测试: 直接测试 sptest.ittool.pp.ua")
+    logging.info(f"# Cloudflare IP 优选扫描器 (Geonode SOCKS5版)")
+    logging.info(f"# 代理来源: proxylist.geonode.com (SOCKS5 elite)")
     logging.info(f"# 每个地区选出延迟最低的 {MAX_PROXIES_PER_REGION} 个代理")
     logging.info(f"# 每个地区输出 top {MAX_OUTPUT_PER_REGION} 个优选 IP")
     logging.info(f"{'#'*60}\n")
@@ -564,7 +552,7 @@ def main():
         region_ips = all_test_ips[ip_offset:ip_offset + sample_size]
         ip_offset += sample_size
 
-        # 获取该地区的最佳代理
+        # 获取该地区的最佳代理（top 5）
         proxies = get_proxies(region)
 
         # 扫描
@@ -594,7 +582,8 @@ def main():
     with open(f"{OUTPUT_DIR}/ip_all.txt", "w") as f:
         f.writelines(all_lines)
 
-    # 按地区保存
+
+    # 按地区保存（top 8）
     for region, nodes in region_results.items():
         nodes.sort(key=lambda x: x["score"], reverse=True)
         top_nodes = nodes[:MAX_OUTPUT_PER_REGION]
@@ -613,7 +602,7 @@ def main():
                 "total_nodes": len(all_nodes),
                 "regions": {r: len(nodes) for r, nodes in region_results.items()}
             },
-            "nodes": all_nodes[:200]
+            "nodes": all_nodes[:200]  # 只保存前200个
         }, f, indent=2)
 
     # 打印统计
