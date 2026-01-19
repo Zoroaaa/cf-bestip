@@ -32,7 +32,7 @@ TRACE_DOMAINS = {
     "v2": "sptest2.ittool.pp.ua",
 }
 
-SAMPLE_SIZE = 820
+SAMPLE_SIZE = 600
 TIMEOUT = 15
 CONNECT_TIMEOUT = 5
 MAX_WORKERS = 20
@@ -45,12 +45,12 @@ HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 
 # 目标地区配置
 REGION_CONFIG = {
-    "HK": {"codes": ["HK"], "sample": 100},
-    "SG": {"codes": ["SG"], "sample": 100},
-    "JP": {"codes": ["JP"], "sample": 100},
-    "KR": {"codes": ["KR"], "sample": 80},
-    "TW": {"codes": ["TW"], "sample": 80},
-    "US": {"codes": ["US"], "sample": 120},
+    "HK": {"codes": ["HK"], "sample": 60},
+    "SG": {"codes": ["SG"], "sample": 60},
+    "JP": {"codes": ["JP"], "sample": 60},
+    "KR": {"codes": ["KR"], "sample": 60},
+    "TW": {"codes": ["TW"], "sample": 60},
+    "US": {"codes": ["US"], "sample": 60},
     "DE": {"codes": ["DE"], "sample": 60},
     "UK": {"codes": ["GB"], "sample": 60},
     "AU": {"codes": ["AU"], "sample": 60},
