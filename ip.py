@@ -57,7 +57,7 @@ REGION_CONFIG = {
     "CA": {"codes": ["CA"], "sample": 60},
 }
 
-MAX_OUTPUT_PER_REGION = 8
+MAX_OUTPUT_PER_REGION = 6
 MAX_PROXIES_PER_REGION = 5
 
 # 代理测试配置
