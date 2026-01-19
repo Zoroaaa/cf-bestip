@@ -1,18 +1,29 @@
-name: CF IP Multi-Region Scanner
+name: CF IP Multi-Region Scanner V2
 
 on:
   schedule:
     - cron: "0 */8 * * *"  # 每8小时运行一次
   workflow_dispatch:  # 支持手动触发
+    inputs:
+      test_mode:
+        description: '测试模式（仅运行内部测试）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120  # 增加超时时间以适应三数据源
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # 浅克隆以节省时间
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -20,28 +31,410 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
-          pip install requests tqdm beautifulsoup4
+          sudo apt-get update
+          sudo apt-get install -y curl
+          curl --version
+
+      - name: Create requirements.txt
+        run: |
+          cat > requirements.txt << EOF
+          requests>=2.31.0
+          beautifulsoup4>=4.12.0
+          lxml>=4.9.0
+          EOF
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip list
+
+      - name: Verify dependencies
+        run: |
+          python -c "import requests; print(f'requests: {requests.__version__}')"
+          python -c "import bs4; print(f'beautifulsoup4: {bs4.__version__}')"
+          python -c "import subprocess; print('subprocess: OK')"
+
+      - name: Create output directories
+        run: |
+          mkdir -p public/data
+          ls -la
+
+      - name: Run internal tests
+        id: test
+        run: |
+          python << 'EOF'
+          import sys
+          sys.path.insert(0, '.')
+          
+          # 导入并运行测试
+          try:
+              # 这里可以添加独立的测试脚本
+              # 或者直接运行 ip.py 中的测试函数
+              print("✅ 内部测试准备就绪")
+              sys.exit(0)
+          except Exception as e:
+              print(f"❌ 测试失败: {e}")
+              sys.exit(1)
+          EOF
+        continue-on-error: false
 
       - name: Run multi-region scan
+        if: github.event.inputs.test_mode != 'true'
         run: |
           python ip.py
         env:
           PYTHONUNBUFFERED: "1"
+          PYTHONDONTWRITEBYTECODE: "1"
+        timeout-minutes: 100
+
+      - name: Verify output files
+        if: github.event.inputs.test_mode != 'true'
+        run: |
+          echo "📁 检查输出文件..."
+          ls -lh public/
+          
+          if [ -f "public/ip_all.txt" ]; then
+            echo "✅ ip_all.txt 存在"
+            wc -l public/ip_all.txt
+          else
+            echo "⚠️ ip_all.txt 不存在"
+          fi
+          
+          if [ -f "public/ip_candidates.json" ]; then
+            echo "✅ ip_candidates.json 存在"
+            cat public/ip_candidates.json | python -m json.tool | head -20
+          else
+            echo "⚠️ ip_candidates.json 不存在"
+          fi
+          
+          echo ""
+          echo "📊 各地区文件统计:"
+          for file in public/ip_*.txt; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              count=$(wc -l < "$file")
+              echo "  $filename: $count 行"
+            fi
+          done
+
+      - name: Generate index.html
+        if: github.event.inputs.test_mode != 'true'
+        run: |
+          python << 'EOF'
+          import json
+          import os
+          from datetime import datetime
+          
+          # 读取 JSON 数据
+          try:
+              with open('public/ip_candidates.json', 'r') as f:
+                  data = json.load(f)
+          except:
+              data = {"meta": {}, "nodes": []}
+          
+          meta = data.get('meta', {})
+          nodes = data.get('nodes', [])[:50]  # 显示前50个
+          
+          html = f'''<!DOCTYPE html>
+          <html lang="zh-CN">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Cloudflare IP 优选结果</title>
+              <style>
+                  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                  body {{
+                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      min-height: 100vh;
+                      padding: 20px;
+                  }}
+                  .container {{
+                      max-width: 1200px;
+                      margin: 0 auto;
+                      background: white;
+                      border-radius: 16px;
+                      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                      overflow: hidden;
+                  }}
+                  .header {{
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      color: white;
+                      padding: 40px;
+                      text-align: center;
+                  }}
+                  .header h1 {{ font-size: 2.5em; margin-bottom: 10px; }}
+                  .header p {{ opacity: 0.9; font-size: 1.1em; }}
+                  .meta {{
+                      display: grid;
+                      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                      gap: 20px;
+                      padding: 30px 40px;
+                      background: #f8f9fa;
+                      border-bottom: 2px solid #e9ecef;
+                  }}
+                  .meta-item {{
+                      text-align: center;
+                      padding: 15px;
+                      background: white;
+                      border-radius: 8px;
+                      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                  }}
+                  .meta-item .label {{
+                      color: #6c757d;
+                      font-size: 0.9em;
+                      margin-bottom: 8px;
+                  }}
+                  .meta-item .value {{
+                      color: #667eea;
+                      font-size: 1.8em;
+                      font-weight: bold;
+                  }}
+                  .downloads {{
+                      padding: 30px 40px;
+                      background: #f8f9fa;
+                  }}
+                  .downloads h2 {{
+                      color: #333;
+                      margin-bottom: 20px;
+                      font-size: 1.5em;
+                  }}
+                  .download-grid {{
+                      display: grid;
+                      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                      gap: 15px;
+                  }}
+                  .download-btn {{
+                      display: block;
+                      padding: 12px 20px;
+                      background: white;
+                      color: #667eea;
+                      text-decoration: none;
+                      border-radius: 8px;
+                      text-align: center;
+                      font-weight: 600;
+                      transition: all 0.3s;
+                      border: 2px solid #667eea;
+                  }}
+                  .download-btn:hover {{
+                      background: #667eea;
+                      color: white;
+                      transform: translateY(-2px);
+                      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+                  }}
+                  .nodes {{
+                      padding: 30px 40px;
+                  }}
+                  .nodes h2 {{
+                      color: #333;
+                      margin-bottom: 20px;
+                      font-size: 1.5em;
+                  }}
+                  table {{
+                      width: 100%;
+                      border-collapse: collapse;
+                  }}
+                  th, td {{
+                      padding: 12px;
+                      text-align: left;
+                      border-bottom: 1px solid #e9ecef;
+                  }}
+                  th {{
+                      background: #667eea;
+                      color: white;
+                      font-weight: 600;
+                      position: sticky;
+                      top: 0;
+                  }}
+                  tr:hover {{ background: #f8f9fa; }}
+                  .region-tag {{
+                      display: inline-block;
+                      padding: 4px 12px;
+                      background: #667eea;
+                      color: white;
+                      border-radius: 12px;
+                      font-size: 0.85em;
+                      font-weight: 600;
+                  }}
+                  .score {{
+                      color: #28a745;
+                      font-weight: bold;
+                  }}
+                  .footer {{
+                      padding: 20px 40px;
+                      text-align: center;
+                      color: #6c757d;
+                      background: #f8f9fa;
+                      border-top: 2px solid #e9ecef;
+                  }}
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <div class="header">
+                      <h1>🌐 Cloudflare IP 优选</h1>
+                      <p>多数据源 | HTTPS + SOCKS5 | 智能筛选</p>
+                  </div>
+                  
+                  <div class="meta">
+                      <div class="meta-item">
+                          <div class="label">总节点数</div>
+                          <div class="value">{meta.get('total_nodes', 0)}</div>
+                      </div>
+                      <div class="meta-item">
+                          <div class="label">数据源</div>
+                          <div class="value">{len(meta.get('data_sources', []))}</div>
+                      </div>
+                      <div class="meta-item">
+                          <div class="label">支持协议</div>
+                          <div class="value">{len(meta.get('protocols', []))}</div>
+                      </div>
+                      <div class="meta-item">
+                          <div class="label">更新时间</div>
+                          <div class="value" style="font-size: 0.9em;">
+                              {meta.get('generated_at', 'N/A')[:19].replace('T', ' ')}
+                          </div>
+                      </div>
+                  </div>
+                  
+                  <div class="downloads">
+                      <h2>📥 下载文件</h2>
+                      <div class="download-grid">
+                          <a href="ip_all.txt" class="download-btn">🌍 全部</a>
+                          <a href="ip_HK.txt" class="download-btn">🇭🇰 香港</a>
+                          <a href="ip_SG.txt" class="download-btn">🇸🇬 新加坡</a>
+                          <a href="ip_JP.txt" class="download-btn">🇯🇵 日本</a>
+                          <a href="ip_KR.txt" class="download-btn">🇰🇷 韩国</a>
+                          <a href="ip_TW.txt" class="download-btn">🇹🇼 台湾</a>
+                          <a href="ip_US.txt" class="download-btn">🇺🇸 美国</a>
+                          <a href="ip_DE.txt" class="download-btn">🇩🇪 德国</a>
+                          <a href="ip_UK.txt" class="download-btn">🇬🇧 英国</a>
+                          <a href="ip_AU.txt" class="download-btn">🇦🇺 澳大利亚</a>
+                          <a href="ip_CA.txt" class="download-btn">🇨🇦 加拿大</a>
+                          <a href="ip_candidates.json" class="download-btn">📄 JSON</a>
+                      </div>
+                  </div>
+                  
+                  <div class="nodes">
+                      <h2>🏆 Top 50 节点</h2>
+                      <table>
+                          <thead>
+                              <tr>
+                                  <th>#</th>
+                                  <th>IP:端口</th>
+                                  <th>地区</th>
+                                  <th>COLO</th>
+                                  <th>评分</th>
+                                  <th>延迟</th>
+                              </tr>
+                          </thead>
+                          <tbody>
+          '''
+          
+          for i, node in enumerate(nodes, 1):
+              latencies = node.get('latencies', [])
+              avg_latency = sum(latencies) / len(latencies) if latencies else 0
+              
+              html += f'''
+                              <tr>
+                                  <td>{i}</td>
+                                  <td><code>{node['ip']}:{node['port']}</code></td>
+                                  <td><span class="region-tag">{node['region']}</span></td>
+                                  <td>{node.get('colo', 'N/A')}</td>
+                                  <td class="score">{node['score']:.4f}</td>
+                                  <td>{avg_latency:.0f}ms</td>
+                              </tr>
+              '''
+          
+          html += '''
+                          </tbody>
+                      </table>
+                  </div>
+                  
+                  <div class="footer">
+                      <p>🔄 每8小时自动更新 | 数据源: Proxifly + ProxyDaily + Tomcat1235</p>
+                      <p style="margin-top: 10px; font-size: 0.9em;">
+                          <a href="https://github.com" style="color: #667eea; text-decoration: none;">GitHub</a> | 
+                          Version 2.0
+                      </p>
+                  </div>
+              </div>
+          </body>
+          </html>
+          '''
+          
+          with open('public/index.html', 'w', encoding='utf-8') as f:
+              f.write(html)
+          
+          print("✅ index.html 生成成功")
+          EOF
+
+      - name: Create .nojekyll
+        if: github.event.inputs.test_mode != 'true'
+        run: |
+          touch public/.nojekyll
+          echo "✅ .nojekyll 创建成功"
 
       - name: Upload artifacts
-        if: always()
+        if: always() && github.event.inputs.test_mode != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: scan-results
-          path: public/
+          name: scan-results-${{ github.run_number }}
+          path: |
+            public/
+            !public/data/
           retention-days: 7
+          compression-level: 9
+
+      - name: Generate summary
+        if: github.event.inputs.test_mode != 'true'
+        run: |
+          echo "## 📊 扫描结果摘要" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "public/ip_candidates.json" ]; then
+            python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          
+          with open('public/ip_candidates.json', 'r') as f:
+              data = json.load(f)
+          
+          meta = data.get('meta', {})
+          regions = meta.get('regions', {})
+          
+          print(f"### 总节点数: {meta.get('total_nodes', 0)}")
+          print(f"### 数据源: {', '.join(meta.get('data_sources', []))}")
+          print(f"### 支持协议: {', '.join(meta.get('protocols', []))}")
+          print("")
+          print("### 各地区节点分布:")
+          print("")
+          print("| 地区 | 节点数 |")
+          print("|------|--------|")
+          for region, count in sorted(regions.items()):
+              print(f"| {region} | {count} |")
+          EOF
+          else
+            echo "⚠️ 未找到 JSON 文件" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Publish to GitHub Pages
+        if: github.event.inputs.test_mode != 'true' && success()
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: public
           publish_branch: gh-pages
           force_orphan: true
+          commit_message: 'Deploy: ${{ github.run_number }} [${{ github.sha }}]'
+
+      - name: Notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ 工作流执行成功"
+          else
+            echo "❌ 工作流执行失败"
+          fi
