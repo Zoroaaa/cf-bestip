@@ -239,7 +239,7 @@ def test_proxy_latency(proxy):
 
 def get_proxies(region):
     """
-    获取指定地区的最佳 SOCKS5 代理（仅基础连通性验证）
+    获取指定地区的最佳 SOCKS5 代理（直接取前5个最近检查的，无需预测试）
     """
     # 从 Geonode 获取代理列表
     proxies = fetch_geonode_proxies(region)
@@ -248,48 +248,12 @@ def get_proxies(region):
         logging.warning(f"{region} 无可用 SOCKS5 代理")
         return []
 
-    # 限制测试数量
-    test_proxies = proxies[:50] if len(proxies) > 50 else proxies
+    # 直接取前 MAX_PROXIES_PER_REGION 个（API已按lastChecked desc排序）
+    best_proxies = proxies[:MAX_PROXIES_PER_REGION]
 
-    logging.info(f"{region} 测试 {len(test_proxies)} 个 SOCKS5 代理的基础连通性...")
-
-    # 基础连通性测试（快速筛选）
-    candidate_proxies = []
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_proxy = {executor.submit(test_proxy_latency, p): p for p in test_proxies}
-
-        for future in as_completed(future_to_proxy):
-            proxy = future_to_proxy[future]
-            try:
-                test_result = future.result()
-                if test_result["success"] and test_result["latency"] < PROXY_MAX_LATENCY:
-                    candidate_proxies.append({
-                        "host": proxy["host"],
-                        "port": proxy["port"],
-                        "type": proxy["type"],
-                        "basic_latency": test_result["latency"],
-                        "https_ok": test_result["https_ok"]
-                    })
-            except Exception as e:
-                logging.debug(f"代理测试异常: {e}")
-
-    if not candidate_proxies:
-        logging.warning(f"⚠ {region} 无可用 SOCKS5 代理，将完全使用直连")
-        return []
-
-    logging.info(f"  ✓ 通过: {len(candidate_proxies)} 个 SOCKS5 代理")
-
-    # 按 basic_latency 排序
-    candidate_proxies.sort(key=lambda x: x["basic_latency"])
-
-    # 取前 MAX_PROXIES_PER_REGION 个
-    best_proxies = candidate_proxies[:MAX_PROXIES_PER_REGION]
-
-    logging.info(f"✓ {region} 最终选出 {len(best_proxies)} 个可用 SOCKS5 代理:")
+    logging.info(f"✓ {region} 直接选出 {len(best_proxies)} 个最近检查的 SOCKS5 代理（未经预测试）：")
     for i, p in enumerate(best_proxies, 1):
-        https_mark = "[HTTPS✓]" if p.get("https_ok") else "[HTTP-only]"
-        logging.info(f"  {i}. {p['host']}:{p['port']} ({p['type']}) - 延迟:{p['basic_latency']}ms {https_mark}")
+        logging.info(f"  {i}. {p['host']}:{p['port']} ({p['type']})")
 
     return best_proxies
 
