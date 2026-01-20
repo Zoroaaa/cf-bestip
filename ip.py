@@ -328,74 +328,73 @@ def fetch_proxydaily_proxies(region, max_pages=3):
 # 数据源 3: Tomcat1235
 # =========================
 
-def fetch_tomcat1235_proxies(region, max_pages=3):
-    """从 Tomcat1235 获取代理列表"""
+def fetch_tomcat1235_proxies(region):
     proxies = []
     session = requests.Session()
     
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/91.0.4472.124 Safari/537.36'
+        )
     }
-    
-    country_code = REGION_TO_COUNTRY_CODE.get(region, "")
     
     logging.info(f"[Tomcat1235] 获取 {region} 的代理...")
     
-    for page in range(1, max_pages + 1):
-        try:
-            url = f'https://tomcat1235.nyc.mn/proxy_list?page={page}'
-            resp = session.get(url, headers=headers, timeout=20)
-            resp.raise_for_status()
-            resp.encoding = 'utf-8'
-            
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            table = soup.find('table')
-            if not table:
+    try:
+        # Tomcat1235 免费版固定只有第一页
+        url = 'https://tomcat1235.nyc.mn/proxy_list?page=1'
+        resp = session.get(url, headers=headers, timeout=20)
+        resp.raise_for_status()
+        resp.encoding = 'utf-8'
+        
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        table = soup.find('table')
+        if not table:
+            logging.debug("Tomcat1235 页面中未找到代理表格")
+            return proxies
+        
+        trs = table.find_all('tr')[1:]
+        
+        for row in trs:
+            cells = row.find_all('td')
+            if len(cells) < 3:
                 continue
             
-            trs = table.find_all('tr')[1:]
-            
-            for row in trs:
-                cells = row.find_all('td')
-                if len(cells) < 3:
-                    continue
+            try:
+                protocol = cells[0].text.strip().lower()
+                host = cells[1].text.strip()
+                port = int(cells[2].text.strip())
                 
-                try:
-                    protocol = cells[0].text.strip().lower()
-                    host = cells[1].text.strip()
-                    port = int(cells[2].text.strip())
-                    
-                    # 验证 IP 格式
-                    ipaddress.ip_address(host)
-                    
-                    # 只保留 https 和 socks5
-                    if protocol not in ['https', 'socks5']:
-                        if protocol in ['http', 'https']:
-                            protocol = 'https'
-                        elif protocol.startswith('socks'):
-                            protocol = 'socks5'
-                        else:
-                            continue
-                    
-                    # Tomcat1235 不提供国家信息，需要 IP 定位
-                    # 这里简化处理，标记为 UNKNOWN，后续可以通过 IP 定位服务补充
-                    proxy = ProxyInfo(
-                        host=host,
-                        port=port,
-                        proxy_type=protocol,
-                        country_code="UNKNOWN",
-                        source="tomcat1235"
-                    )
-                    proxies.append(proxy)
-                    
-                except (ValueError, ipaddress.AddressValueError, IndexError):
-                    continue
-            
-            time.sleep(0.5)
-            
-        except Exception as e:
-            logging.debug(f"Tomcat1235 第 {page} 页失败: {e}")
-            continue
+                # 验证 IP 格式
+                ipaddress.ip_address(host)
+                
+                # 只保留 https 和 socks5
+                if protocol not in ['https', 'socks5']:
+                    if protocol in ['http', 'https']:
+                        protocol = 'https'
+                    elif protocol.startswith('socks'):
+                        protocol = 'socks5'
+                    else:
+                        continue
+                
+                proxy = ProxyInfo(
+                    host=host,
+                    port=port,
+                    proxy_type=protocol,
+                    country_code="UNKNOWN",
+                    source="tomcat1235"
+                )
+                proxies.append(proxy)
+                
+            except (ValueError, ipaddress.AddressValueError, IndexError):
+                continue
+        
+        time.sleep(0.5)
+        
+    except Exception as e:
+        logging.debug(f"Tomcat1235 请求失败: {e}")
     
     logging.info(f"  ✓ Tomcat1235: {region} 获取 {len(proxies)} 个代理 (国家码需补充)")
     return proxies
