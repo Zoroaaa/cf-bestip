@@ -2,6 +2,7 @@
 import requests
 import time
 import logging
+import random
 from models import ProxyInfo
 from config import PROXY_CHECK_API_URL, PROXY_CHECK_API_TOKEN, CF_IPS_V4_URL, TRACE_DOMAINS
 from data_sources import DataSourceManager
@@ -48,10 +49,10 @@ class InternalTester:
                 self.logger.info(f"  ✓ 成功获取 {len(cidrs)} 个 IP 段")
                 return True
             else:
-                self.logger.error("  ✗✗ IP 段列表为空")
+                self.logger.error("  ✗✗✗✗ IP 段列表为空")
                 return False
         except Exception as e:
-            self.logger.error(f"  ✗✗ 获取失败: {e}")
+            self.logger.error(f"  ✗✗✗✗ 获取失败: {e}")
             return False
     
     def _test_data_sources(self):
@@ -68,17 +69,17 @@ class InternalTester:
             self.logger.info(f"    ✓ Proxifly: {len(proxifly_list)} 个代理")
         except Exception as e:
             results["proxifly"] = False
-            self.logger.error(f"    ✗✗ Proxifly 失败: {e}")
+            self.logger.error(f"    ✗✗✗✗ Proxifly 失败: {e}")
         
         # ProxyDaily
         self.logger.info("  测试 ProxyDaily...")
         try:
-            proxydaily_list = self.data_source_manager._fetch_proxydaily_proxies(test_region, max_pages=1)
+            proxydaily_list = self.data_source_manager._fetch_proxydaily_proxies(test_region)
             results["proxydaily"] = len(proxydaily_list) > 0
             self.logger.info(f"    ✓ ProxyDaily: {len(proxydaily_list)} 个代理")
         except Exception as e:
             results["proxydaily"] = False
-            self.logger.error(f"    ✗✗ ProxyDaily 失败: {e}")
+            self.logger.error(f"    ✗✗✗✗ ProxyDaily 失败: {e}")
         
         # Tomcat1235
         self.logger.info("  测试 Tomcat1235...")
@@ -88,7 +89,7 @@ class InternalTester:
             self.logger.info(f"    ✓ Tomcat1235: {len(tomcat_list)} 个代理")
         except Exception as e:
             results["tomcat1235"] = False
-            self.logger.error(f"    ✗✗ Tomcat1235 失败: {e}")
+            self.logger.error(f"    ✗✗✗✗ Tomcat1235 失败: {e}")
         
         return {"data_sources": results}
     
@@ -96,7 +97,7 @@ class InternalTester:
         """测试 API 可用性"""
         self.logger.info("\n[测试 3/5] 代理检测 API 测试...")
         if not PROXY_CHECK_API_URL:
-            self.logger.warning("  ⚠⚠⚠ 未配置 PROXY_CHECK_API_URL,跳过API测试")
+            self.logger.warning("  ⚠⚠⚠⚠⚠ 未配置 PROXY_CHECK_API_URL,跳过API测试")
             return False
         
         try:
@@ -107,77 +108,133 @@ class InternalTester:
                 self.logger.info("  ✓ API 响应正常")
                 return True
             else:
-                self.logger.warning("  ⚠⚠⚠ API 响应异常")
+                self.logger.warning("  ⚠⚠⚠⚠⚠ API 响应异常")
                 return False
         except Exception as e:
-            self.logger.error(f"  ✗✗ API 测试失败: {e}")
+            self.logger.error(f"  ✗✗✗✗ API 测试失败: {e}")
             return False
     
     def _test_proxy_connectivity(self):
         """测试代理连通性"""
         self.logger.info("\n[测试 4/5] 代理连通性测试...")
         
-        # 收集一些测试代理
-        all_test_proxies = []
+        # 收集所有数据源的代理
         test_region = "US"
+        all_proxies_by_source = {}
         
+        # 从每个数据源获取代理
         try:
             proxifly_list = self.data_source_manager._fetch_proxifly_proxies(test_region)
-            all_test_proxies.extend(proxifly_list[:3])
+            if proxifly_list:
+                all_proxies_by_source["proxifly"] = proxifly_list
         except:
             pass
         
         try:
-            proxydaily_list = self.data_source_manager._fetch_proxydaily_proxies(test_region, max_pages=1)
-            all_test_proxies.extend(proxydaily_list[:3])
+            proxydaily_list = self.data_source_manager._fetch_proxydaily_proxies(test_region)
+            if proxydaily_list:
+                all_proxies_by_source["proxydaily"] = proxydaily_list
         except:
             pass
         
-        results = {"working_count": 0, "total_tested": 0}
+        try:
+            tomcat_list = self.data_source_manager._fetch_tomcat1235_proxies(test_region)
+            if tomcat_list:
+                all_proxies_by_source["tomcat1235"] = tomcat_list
+        except:
+            pass
         
-        if all_test_proxies and PROXY_CHECK_API_URL:
-            self.logger.info(f"  测试 {len(all_test_proxies[:5])} 个代理...")
-            working_proxies = 0
+        results = {"working_count": 0, "total_tested": 0, "source_results": {}}
+        
+        if all_proxies_by_source and PROXY_CHECK_API_URL:
+            total_tested = 0
+            total_working = 0
             
-            for proxy in all_test_proxies[:5]:  # 最多测试5个
-                result = self.proxy_tester._check_proxy_with_api(proxy)
-                if result["success"]:
-                    working_proxies += 1
-                    self.logger.info(f"    ✓ {proxy.host}:{proxy.port} ({proxy.type}) - {result['latency']}ms")
+            for source_name, proxy_list in all_proxies_by_source.items():
+                if len(proxy_list) == 0:
+                    self.logger.info(f"  {source_name}: 无代理可用")
+                    results["source_results"][source_name] = {"tested": 0, "working": 0}
+                    continue
+                
+                # 随机抽取5个代理
+                sample_size = min(5, len(proxy_list))
+                sampled_proxies = random.sample(proxy_list, sample_size)
+                
+                self.logger.info(f"\n  {source_name} 随机抽取 {sample_size} 个代理:")
+                for i, proxy in enumerate(sampled_proxies, 1):
+                    self.logger.info(f"    {i}. {proxy.host}:{proxy.port} ({proxy.type}) - {proxy.country_code}")
+                
+                # 测试抽取的代理
+                self.logger.info(f"  {source_name} 代理测试结果:")
+                source_working = 0
+                
+                for i, proxy in enumerate(sampled_proxies, 1):
+                    result = self.proxy_tester._check_proxy_with_api(proxy)
+                    if result["success"]:
+                        source_working += 1
+                        total_working += 1
+                        self.logger.info(f"    {i}. ✓ {proxy.host}:{proxy.port} - {result['latency']}ms")
+                    else:
+                        self.logger.info(f"    {i}. ✗ {proxy.host}:{proxy.port} - 失败")
+                
+                total_tested += sample_size
+                results["source_results"][source_name] = {
+                    "tested": sample_size, 
+                    "working": source_working,
+                    "success_rate": round(source_working / sample_size * 100, 1) if sample_size > 0 else 0
+                }
+                
+                self.logger.info(f"  {source_name}: {source_working}/{sample_size} 可用 ({results['source_results'][source_name]['success_rate']}%)")
             
-            results["working_count"] = working_proxies
-            results["total_tested"] = len(all_test_proxies[:5])
+            results["working_count"] = total_working
+            results["total_tested"] = total_tested
             
-            if working_proxies > 0:
-                self.logger.info(f"  ✓ {working_proxies}/{len(all_test_proxies[:5])} 个代理可用")
+            if total_working > 0:
+                overall_rate = round(total_working / total_tested * 100, 1) if total_tested > 0 else 0
+                self.logger.info(f"\n  ✓ 总体: {total_working}/{total_tested} 个代理可用 ({overall_rate}%)")
             else:
-                self.logger.warning("  ⚠⚠⚠ 没有可用代理")
+                self.logger.warning("  ⚠⚠⚠⚠⚠ 没有可用代理")
         else:
-            self.logger.warning("  ⚠⚠⚠ 无代理可测试或API未配置")
+            self.logger.warning("  ⚠⚠⚠⚠⚠ 无代理可测试或API未配置")
         
         return {"proxy_tests": results}
     
     def _test_cf_ip_connectivity(self):
-        """测试 Cloudflare IP 连通性"""
-        self.logger.info("\n[测试 5/5] Cloudflare IP 测试...")
-        try:
-            cidrs = self._fetch_cf_ipv4_cidrs()
-            test_ips = self._weighted_random_ips(cidrs, 5)
-            self.logger.info(f"  测试 {len(test_ips)} 个 Cloudflare IP...")
+    """测试 Cloudflare IP 连通性"""
+    self.logger.info("\n[测试 5/5] Cloudflare IP 测试...")
+    try:
+        cidrs = self._fetch_cf_ipv4_cidrs()
+        test_ips = self._weighted_random_ips(cidrs, 5)
+        self.logger.info(f"  测试 {len(test_ips)} 个 Cloudflare IP...")
+        
+        # 测试所有5个IP
+        successful_tests = 0
+        test_domain = "sptest.ittool.pp.ua"
+        
+        for i, test_ip in enumerate(test_ips, 1):
+            ip_str = str(test_ip)
+            self.logger.info(f"    测试第 {i} 个IP: {ip_str}")
             
-            # 简单测试第一个IP
-            test_ip = str(test_ips[0])
-            result = self._curl_test_with_proxy(test_ip, "sptest.ittool.pp.ua", None)
+            result = self._curl_test_with_proxy(ip_str, test_domain, None)
             
             if result:
-                self.logger.info(f"    ✓ 测试成功: {result['ip']} -> {result['region']} ({result['latency']}ms)")
-                return True
+                successful_tests += 1
+                self.logger.info(f"      ✓ {ip_str} -> {result.get('region', 'UNKNOWN')} ({result['latency']}ms)")
             else:
-                self.logger.warning("    ⚠⚠⚠ CF IP 测试未返回结果")
-                return False
-        except Exception as e:
-            self.logger.error(f"  ✗✗ CF IP 测试失败: {e}")
+                self.logger.info(f"      ✗ {ip_str} -> 连接失败")
+        
+        success_rate = (successful_tests / len(test_ips)) * 100
+        
+        if successful_tests > 0:
+            self.logger.info(f"  ✓ Cloudflare IP 测试: {successful_tests}/{len(test_ips)} 成功 ({success_rate:.1f}%)")
+            return True
+        else:
+            self.logger.warning(f"  ⚠⚠⚠⚠⚠ Cloudflare IP 测试: 0/{len(test_ips)} 成功")
             return False
+            
+    except Exception as e:
+        self.logger.error(f"  ✗✗✗✗ CF IP 测试失败: {e}")
+        return False
     
     def _print_test_summary(self, test_results):
         """输出测试总结"""
@@ -194,7 +251,7 @@ class InternalTester:
             self.logger.info("✓ Cloudflare IP 段获取: 通过")
             passed_tests += 1
         else:
-            self.logger.error("✗✗ Cloudflare IP 段获取: 失败")
+            self.logger.error("✗✗✗✗ Cloudflare IP 段获取: 失败")
         
         # 数据源
         for source, status in test_results["data_sources"].items():
@@ -213,14 +270,33 @@ class InternalTester:
         else:
             self.logger.warning("⚠ 代理检测 API: 未配置或失败(非致命)")
         
-        # 代理测试
+        # 代理测试 - 详细输出每个数据源的结果
+        proxy_results = test_results["proxy_tests"]
+        source_results = proxy_results.get("source_results", {})
+        
         total_tests += 1
-        proxy_working = test_results["proxy_tests"].get("working_count", 0)
-        if proxy_working > 0:
-            self.logger.info(f"✓ 代理连通性: 通过 ({proxy_working} 个可用)")
-            passed_tests += 1
+        proxy_working = proxy_results.get("working_count", 0)
+        proxy_tested = proxy_results.get("total_tested", 0)
+        
+        if proxy_tested > 0:
+            # 输出每个数据源的详细结果
+            self.logger.info("✓ 代理连通性测试完成:")
+            for source_name, result in source_results.items():
+                success_rate = result.get("success_rate", 0)
+                working = result.get("working", 0)
+                tested = result.get("tested", 0)
+                status_icon = "✓" if success_rate > 50 else "⚠"
+                self.logger.info(f"  {status_icon} {source_name}: {working}/{tested} 可用 ({success_rate}%)")
+            
+            overall_rate = round(proxy_working / proxy_tested * 100, 1) if proxy_tested > 0 else 0
+            self.logger.info(f"  总体: {proxy_working}/{proxy_tested} 可用 ({overall_rate}%)")
+            
+            if proxy_working > 0:
+                passed_tests += 1
+            else:
+                self.logger.warning("⚠ 代理连通性: 无可用代理(将使用直连)")
         else:
-            self.logger.warning("⚠ 代理连通性: 无可用代理(将使用直连)")
+            self.logger.warning("⚠ 代理连通性: 无代理可测试(将使用直连)")
         
         # CF IP 测试
         total_tests += 1
@@ -228,7 +304,7 @@ class InternalTester:
             self.logger.info("✓ CF IP 测试: 通过")
             passed_tests += 1
         else:
-            self.logger.error("✗✗ CF IP 测试: 失败")
+            self.logger.error("✗✗✗✗ CF IP 测试: 失败")
         
         self.logger.info("="*60)
         self.logger.info(f"测试结果: {passed_tests}/{total_tests} 通过")
@@ -237,7 +313,7 @@ class InternalTester:
             self.logger.info("✅ 系统可用性测试通过,可以开始扫描")
             return True
         else:
-            self.logger.error("❌❌ 系统可用性测试失败,请检查网络和依赖")
+            self.logger.error("❌❌❌❌ 系统可用性测试失败,请检查网络和依赖")
             return False
     
     # 工具函数（从主文件复制）
