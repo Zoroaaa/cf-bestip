@@ -1,4 +1,3 @@
-# 文件1: proxy_sources.py
 import requests
 import logging
 from bs4 import BeautifulSoup
@@ -33,6 +32,7 @@ class ProxyInfo:
     
     def __repr__(self):
         return f"Proxy({self.host}:{self.port}, {self.type}, {self.country_code}, src={self.source})"
+
 
 def fetch_proxifly_proxies(region, REGION_TO_COUNTRY_CODE):
     """从 Proxifly 获取代理列表"""
@@ -133,6 +133,7 @@ def fetch_proxifly_proxies(region, REGION_TO_COUNTRY_CODE):
         logging.error(f"  ✗ Proxifly: {region} 失败 - {e}")
         return []
 
+
 def fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=3):
     """从 ProxyDaily 获取代理列表"""
     proxies = []
@@ -210,6 +211,7 @@ def fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=3):
     logging.info(f"  ✓ ProxyDaily: {region} 获取 {len(proxies)} 个代理")
     return proxies
 
+
 def fetch_tomcat1235_proxies(region):
     proxies = []
     session = requests.Session()
@@ -281,93 +283,59 @@ def fetch_tomcat1235_proxies(region):
     logging.info(f"  ✓ Tomcat1235: {region} 获取 {len(proxies)} 个代理 (国家码需补充)")
     return proxies
 
-def fetch_hookzof_proxies(region):
-    """从 hookzof 获取 SOCKS5 代理列表"""
+
+def fetch_webshare_proxies(region, token="fd6i0jla6026bmaeavorfjxrbu9dfbz9r5ne4asr"):
+    """从 Webshare 免费版获取代理，每次最多 10 条"""
     proxies = []
-    url = "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt"
-    logging.info(f"[Hookzof] 获取 {region} 的代理 (全局 SOCKS5)...")
+    logging.info(f"[Webshare] 获取 {region} 的代理 (免费版 limit=10)...")
+    
     try:
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
+        url = "https://proxy.webshare.io/api/v2/proxy/list/"
+        headers = {
+            "Authorization": f"Token {token}",
+            "Accept": "application/json",
+        }
+        params = {
+            "mode": "direct",
+            "page": 1,
+            "page_size": 10,           # 免费版建议不要超过10
+            "country_code__in": region.upper(),  # 尝试按国家过滤
+        }
         
-        lines = response.text.strip().split('\n')
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            
+        resp = requests.get(url, headers=headers, params=params, timeout=15)
+        resp.raise_for_status()
+        
+        data = resp.json()
+        results = data.get("results", [])
+        
+        for item in results:
             try:
-                parts = line.split(':')
-                if len(parts) == 2:
-                    host = parts[0].strip()
-                    port = int(parts[1].strip())
-                    ipaddress.ip_address(host)
-                    
-                    proxy = ProxyInfo(
-                        host=host,
-                        port=port,
-                        proxy_type='socks5',
-                        country_code="UNKNOWN",
-                        source="hookzof"
-                    )
-                    proxies.append(proxy)
-            except (ValueError, ipaddress.AddressValueError, IndexError):
+                host = item["proxy_address"]
+                # 免费版通常 http 和 https 共用端口，这里取 http 端口（一般也能用于 https）
+                port = int(item["ports"]["http"])
+                country_code = item.get("country_code", "UNKNOWN").upper()
+                
+                # Webshare 免费版主要是 http/https 代理，少量 socks5
+                proxy_type = "https"
+                if item.get("proxy_type", "").lower() == "socks5":
+                    proxy_type = "socks5"
+                
+                proxy = ProxyInfo(
+                    host=host,
+                    port=port,
+                    proxy_type=proxy_type,
+                    country_code=country_code,
+                    anonymity="elite" if item.get("anonymous", False) else "transparent",
+                    source="webshare"
+                )
+                proxies.append(proxy)
+            except (KeyError, ValueError, TypeError) as e:
+                logging.debug(f"Webshare 解析错误: {e}")
                 continue
         
-        logging.info(f"  ✓ Hookzof: {region} 获取 {len(proxies)} 个代理 (国家码需补充)")
+        logging.info(f"  ✓ Webshare: {region} 获取 {len(proxies)} 个代理")
         return proxies
         
     except Exception as e:
-        logging.error(f"  ✗ Hookzof: {region} 失败 - {e}")
+        logging.error(f"  ✗ Webshare 获取失败: {e}")
         return []
-
-def fetch_proxyscrape_proxies(region, REGION_TO_COUNTRY_CODE):
-    """从 Proxyscrape 获取代理列表"""
-    country_code = REGION_TO_COUNTRY_CODE.get(region)
-    if not country_code:
-        logging.warning(f"Proxyscrape: {region} 无对应的国家代码")
-        return []
-
-    proxies = []
-    protocols = ['https', 'socks5']  # 只获取 https 和 socks5
-    
-    logging.info(f"[Proxyscrape] 获取 {region} 的代理...")
-    
-    for proto in protocols:
-        url = f"https://api.proxyscrape.com/v2/?request=displayproxies&protocol={proto}&timeout=10000&country={country_code}&ssl=yes&anonymity=all"
-        try:
-            response = requests.get(url, timeout=15)
-            response.raise_for_status()
-            
-            lines = response.text.strip().split('\n')
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                try:
-                    parts = line.split(':')
-                    if len(parts) == 2:
-                        host = parts[0].strip()
-                        port = int(parts[1].strip())
-                        ipaddress.ip_address(host)
-                        
-                        proxy = ProxyInfo(
-                            host=host,
-                            port=port,
-                            proxy_type=proto,
-                            country_code=country_code,
-                            source="proxyscrape"
-                        )
-                        proxies.append(proxy)
-                except (ValueError, ipaddress.AddressValueError, IndexError):
-                    continue
-            
-            time.sleep(0.5)  # 避免请求过快
-            
-        except Exception as e:
-            logging.debug(f"Proxyscrape {proto} 失败: {e}")
-            continue
-    
-    logging.info(f"  ✓ Proxyscrape: {region} 获取 {len(proxies)} 个代理")
-    return proxies
