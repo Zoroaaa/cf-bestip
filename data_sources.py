@@ -6,6 +6,7 @@ import logging
 from bs4 import BeautifulSoup
 from models import ProxyInfo
 from config import PROXIFLY_BASE_URL, PROXIFLY_JSON_URL, REGION_TO_COUNTRY_CODE, COUNTRY_TO_REGION
+from config import DATA_SOURCE_REGION_MAPPING  # 新增导入
 
 class DataSourceManager:
     """数据源管理器"""
@@ -17,17 +18,20 @@ class DataSourceManager:
         """从所有数据源获取代理"""
         all_proxies = []
         
-        # 数据源 1: Proxifly
-        proxifly_proxies = self._fetch_proxifly_proxies(region)
-        all_proxies.extend(proxifly_proxies)
+        # 数据源 1: Proxifly - 根据映射决定是否获取
+        if region in DATA_SOURCE_REGION_MAPPING["proxifly"]:
+            proxifly_proxies = self._fetch_proxifly_proxies(region)
+            all_proxies.extend(proxifly_proxies)
         
-        # 数据源 2: ProxyDaily (直接从API链接获取)
-        proxydaily_proxies = self._fetch_proxydaily_proxies(region)
-        all_proxies.extend(proxydaily_proxies)
+        # 数据源 2: ProxyDaily - 根据映射决定是否获取
+        if region in DATA_SOURCE_REGION_MAPPING["proxydaily"]:
+            proxydaily_proxies = self._fetch_proxydaily_proxies(region)
+            all_proxies.extend(proxydaily_proxies)
         
-        # 数据源 3: Tomcat1235
-        tomcat_proxies = self._fetch_tomcat1235_proxies(region)
-        all_proxies.extend(tomcat_proxies)
+        # 数据源 3: Tomcat1235 - 根据映射决定是否获取
+        if region in DATA_SOURCE_REGION_MAPPING["tomcat1235"]:
+            tomcat_proxies = self._fetch_tomcat1235_proxies(region)
+            all_proxies.extend(tomcat_proxies)
         
         self.logger.info(f"{region} 共收集 {len(all_proxies)} 个代理")
         return all_proxies
@@ -125,11 +129,11 @@ class DataSourceManager:
             return proxies
             
         except Exception as e:
-            self.logger.error(f"  ✗✗✗✗ Proxifly: {region} 失败 - {e}")
+            self.logger.error(f"  ✗✗✗✗✗✗✗✗ Proxifly: {region} 失败 - {e}")
             return []
 
     def _fetch_proxydaily_proxies(self, region):
-        """从 ProxyDaily 获取代理列表 - 直接从API链接获取JSON数据"""
+        """从 ProxyDaily 获取代理列表 - 固定测试IT和FR"""
         proxies = []
         
         self.logger.info(f"[ProxyDaily] 获取 {region} 的代理...")
@@ -146,10 +150,15 @@ class DataSourceManager:
                 try:
                     item_country = item.get('country', '').upper()
                     
-                    # 地区过滤
-                    if country_code and item_country != country_code:
-                        mapped_region = COUNTRY_TO_REGION.get(item_country)
-                        if mapped_region != region:
+                    # 地区过滤 - 只获取IT和FR的代理
+                    if region in ["IT", "FR"]:
+                        if item_country != country_code:
+                            mapped_region = COUNTRY_TO_REGION.get(item_country)
+                            if mapped_region != region:
+                                continue
+                    else:
+                        # 对于非IT/FR地区，只获取US代理作为备用
+                        if item_country != "US":
                             continue
                     
                     protocols = item.get('protocol', 'http').split(',')
@@ -184,11 +193,11 @@ class DataSourceManager:
             return proxies
             
         except Exception as e:
-            self.logger.error(f"  ✗✗✗✗ ProxyDaily: {region} 失败 - {e}")
+            self.logger.error(f"  ✗✗✗✗✗✗✗✗ ProxyDaily: {region} 失败 - {e}")
             return []
 
     def _fetch_tomcat1235_proxies(self, region):
-        """从 Tomcat1235 获取代理列表"""
+        """从 Tomcat1235 获取代理列表 - 固定测试US"""
         proxies = []
         session = requests.Session()
         
@@ -231,11 +240,12 @@ class DataSourceManager:
                         else:
                             continue
                     
+                    # 固定返回US代理
                     proxy = ProxyInfo(
                         host=host,
                         port=port,
                         proxy_type=protocol,
-                        country_code="UNKNOWN",
+                        country_code="US",
                         source="tomcat1235"
                     )
                     proxies.append(proxy)
