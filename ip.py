@@ -44,8 +44,8 @@ DATA_DIR = "public/data"
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 
 # 代理检测 API 配置
-PROXY_CHECK_API_URL = ""  # 填入你的 API 地址,例如: https://your-worker.workers.dev/check
-PROXY_CHECK_API_TOKEN = ""  # 填入你的 API Token
+PROXY_CHECK_API_URL = "https://prcheck.ittool.pp.ua/check"  # 填入你的 API 地址,例如: https://your-worker.workers.dev/check
+PROXY_CHECK_API_TOKEN = "588wbb"  # 填入你的 API Token
 
 # 目标地区配置
 REGION_CONFIG = {
