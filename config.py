@@ -54,7 +54,7 @@ PROXY_CHECK_API_TOKEN = "588wbb"
 
 REGION_CONFIG = {
     "CA": {"codes": ["CA"], "sample": SAMPLE_SIZE_PER_REGION},
-    "CN": {"codes": ["CN"], "sample": SAMPLE_SIZE_PER_REGION},
+    "CN": {"codes": ["HK"], "sample": SAMPLE_SIZE_PER_REGION},
     "DE": {"codes": ["DE"], "sample": SAMPLE_SIZE_PER_REGION},
     "FR": {"codes": ["FR"], "sample": SAMPLE_SIZE_PER_REGION},
     "GB": {"codes": ["GB"], "sample": SAMPLE_SIZE_PER_REGION},
@@ -91,7 +91,7 @@ COLO_MAP = {
 
 COUNTRY_TO_REGION = {
     "CA": "CA",
-    "CN": "CN",
+    "HK": "HK",
     "DE": "DE",
     "FR": "FR",
     "GB": "GB",
@@ -106,7 +106,7 @@ COUNTRY_TO_REGION = {
 
 REGION_TO_COUNTRY_CODE = {
     "CA": "CA",
-    "CN": "CN",
+    "HK": "HK",
     "DE": "DE",
     "FR": "FR",
     "GB": "GB",
