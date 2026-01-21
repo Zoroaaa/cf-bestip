@@ -6,6 +6,7 @@ import time
 import subprocess
 import ipaddress
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from config import fetch_cf_ipv4_cidrs
 
 from config import *
 from proxy_sources import (
@@ -201,13 +202,3 @@ def run_internal_tests():
 
     return success
 
-
-def fetch_cf_ipv4_cidrs():
-    """获取 Cloudflare IPv4 CIDR 列表（自检专用）"""
-    try:
-        r = requests.get(CF_IPS_V4_URL, timeout=10)
-        r.raise_for_status()
-        return [line.strip() for line in r.text.splitlines() if line.strip() and not line.strip().startswith('#')]
-    except Exception as e:
-        logging.error(f"[自检] 获取 CF IP 段失败: {e}")
-        return []
