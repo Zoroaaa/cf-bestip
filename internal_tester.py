@@ -5,6 +5,7 @@ import logging
 import random
 from models import ProxyInfo
 from config import PROXY_CHECK_API_URL, PROXY_CHECK_API_TOKEN, CF_IPS_V4_URL, TRACE_DOMAINS
+from config import REGION_CONFIG, REGION_TO_COUNTRY_CODE
 from data_sources import DataSourceManager
 from proxy_tester import ProxyTester
 
@@ -58,7 +59,11 @@ class InternalTester:
     def _test_data_sources(self):
         """测试数据源可用性"""
         self.logger.info("\n[测试 2/5] 代理数据源测试...")
-        test_region = "US"
+        # 随机选择一个地区进行数据源测试
+        available_regions = list(REGION_CONFIG.keys())
+        test_region = random.choice(available_regions)
+        self.logger.info(f"  随机选择测试地区: {test_region}")
+        
         results = {}
         
         # Proxifly
@@ -115,34 +120,38 @@ class InternalTester:
             return False
     
     def _test_proxy_connectivity(self):
-        """测试代理连通性"""
+        """测试代理连通性 - 从所有数据源随机获取代理进行测试"""
         self.logger.info("\n[测试 4/5] 代理连通性测试...")
         
-        # 收集所有数据源的代理
-        test_region = "US"
+        # 收集所有数据源的所有地区代理
         all_proxies_by_source = {}
+        available_regions = list(REGION_CONFIG.keys())
         
-        # 从每个数据源获取代理
-        try:
-            proxifly_list = self.data_source_manager._fetch_proxifly_proxies(test_region)
-            if proxifly_list:
-                all_proxies_by_source["proxifly"] = proxifly_list
-        except:
-            pass
+        self.logger.info("  从所有地区收集代理...")
         
-        try:
-            proxydaily_list = self.data_source_manager._fetch_proxydaily_proxies(test_region)
-            if proxydaily_list:
-                all_proxies_by_source["proxydaily"] = proxydaily_list
-        except:
-            pass
-        
-        try:
-            tomcat_list = self.data_source_manager._fetch_tomcat1235_proxies(test_region)
-            if tomcat_list:
-                all_proxies_by_source["tomcat1235"] = tomcat_list
-        except:
-            pass
+        # 从每个数据源获取所有地区的代理
+        for source_name in ["proxifly", "proxydaily", "tomcat1235"]:
+            all_proxies_by_source[source_name] = []
+            
+            # 随机选择几个地区进行测试，避免测试时间过长
+            test_regions = random.sample(available_regions, min(3, len(available_regions)))
+            self.logger.info(f"  {source_name} 测试地区: {', '.join(test_regions)}")
+            
+            for region in test_regions:
+                try:
+                    if source_name == "proxifly":
+                        proxies = self.data_source_manager._fetch_proxifly_proxies(region)
+                    elif source_name == "proxydaily":
+                        proxies = self.data_source_manager._fetch_proxydaily_proxies(region)
+                    elif source_name == "tomcat1235":
+                        proxies = self.data_source_manager._fetch_tomcat1235_proxies(region)
+                    
+                    if proxies:
+                        all_proxies_by_source[source_name].extend(proxies)
+                        self.logger.info(f"    {region}: {len(proxies)} 个代理")
+                        
+                except Exception as e:
+                    self.logger.debug(f"    {source_name} {region} 获取失败: {e}")
         
         results = {"working_count": 0, "total_tested": 0, "source_results": {}}
         
@@ -156,13 +165,14 @@ class InternalTester:
                     results["source_results"][source_name] = {"tested": 0, "working": 0}
                     continue
                 
-                # 随机抽取5个代理
+                # 随机抽取5个代理（如果可用代理少于5个，则使用全部）
                 sample_size = min(5, len(proxy_list))
                 sampled_proxies = random.sample(proxy_list, sample_size)
                 
                 self.logger.info(f"\n  {source_name} 随机抽取 {sample_size} 个代理:")
                 for i, proxy in enumerate(sampled_proxies, 1):
-                    self.logger.info(f"    {i}. {proxy.host}:{proxy.port} ({proxy.type}) - {proxy.country_code}")
+                    region_info = f"({proxy.country_code})" if proxy.country_code != "UNKNOWN" else ""
+                    self.logger.info(f"    {i}. {proxy.host}:{proxy.port} {proxy.type.upper()} {region_info}")
                 
                 # 测试抽取的代理
                 self.logger.info(f"  {source_name} 代理测试结果:")
