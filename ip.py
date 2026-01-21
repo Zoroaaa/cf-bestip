@@ -43,6 +43,10 @@ DATA_DIR = "public/data"
 
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 
+# 代理检测 API 配置
+PROXY_CHECK_API_URL = ""  # 填入你的 API 地址,例如: https://your-worker.workers.dev/check
+PROXY_CHECK_API_TOKEN = ""  # 填入你的 API Token
+
 # 目标地区配置
 REGION_CONFIG = {
     "HK": {"codes": ["HK"], "sample": 60},
@@ -62,7 +66,6 @@ MAX_PROXIES_PER_REGION = 5
 
 # 代理测试配置
 PROXY_TEST_TIMEOUT = 10
-PROXY_QUICK_TEST_URL = "http://www.gstatic.com/generate_204"
 PROXY_MAX_LATENCY = 1500  # SOCKS5 和 HTTPS 代理的最大延迟
 SOCKS5_MAX_LATENCY = 1500  # SOCKS5 专用延迟限制
 
@@ -122,6 +125,7 @@ class ProxyInfo:
         self.source = source
         self.tested_latency = None
         self.https_ok = False
+        self.api_result = None  # 保存API返回的完整结果
         
     def to_dict(self):
         return {
@@ -400,109 +404,72 @@ def fetch_tomcat1235_proxies(region):
     return proxies
 
 # =========================
-# 简单的 IP 地理位置定位(基于 ip-api.com)
+# 使用API检测代理
 # =========================
 
-def locate_proxy_country(proxy_list, batch_size=100):
-    """为缺少国家信息的代理补充地理位置"""
-    unknown_proxies = [p for p in proxy_list if p.country_code == "UNKNOWN"]
+def check_proxy_with_api(proxy_info):
+    """使用API检测代理的可用性和信息"""
+    if not PROXY_CHECK_API_URL:
+        logging.error("未配置 PROXY_CHECK_API_URL,无法检测代理")
+        return {"success": False, "latency": 999999}
     
-    if not unknown_proxies:
-        return
-    
-    logging.info(f"正在为 {len(unknown_proxies)} 个代理补充国家信息...")
-    
-    session = requests.Session()
-    
-    def locate_batch(batch):
-        try:
-            # 使用 ip-api.com 批量查询(免费版限制 100/分钟)
-            ips = [p.host for p in batch]
-            resp = session.post(
-                'http://ip-api.com/batch',
-                json=[{"query": ip, "fields": "countryCode,status"} for ip in ips],
-                timeout=10
-            )
-            resp.raise_for_status()
-            results = resp.json()
-            
-            for proxy, result in zip(batch, results):
-                if result.get('status') == 'success':
-                    proxy.country_code = result.get('countryCode', 'UNKNOWN')
-                    
-        except Exception as e:
-            logging.debug(f"IP 定位批次失败: {e}")
-    
-    # 分批处理
-    for i in range(0, len(unknown_proxies), batch_size):
-        batch = unknown_proxies[i:i + batch_size]
-        locate_batch(batch)
-        time.sleep(1)  # 遵守速率限制
-    
-    updated_count = sum(1 for p in unknown_proxies if p.country_code != "UNKNOWN")
-    logging.info(f"  ✓ 成功补充 {updated_count}/{len(unknown_proxies)} 个代理的国家信息")
-
-# =========================
-# 代理测试函数
-# =========================
-
-def test_proxy_latency(proxy_info):
-    """测试代理的连通性和延迟(严格 HTTPS 测试)"""
-    host = proxy_info.host
-    port = proxy_info.port
-    proxy_type = proxy_info.type
+    # 构造代理URL
+    if proxy_info.type in ["socks5", "socks4"]:
+        proxy_url = f"socks5://{proxy_info.host}:{proxy_info.port}"
+    else:
+        proxy_url = f"http://{proxy_info.host}:{proxy_info.port}"
     
     start = time.time()
     
     try:
-        # 测试 HTTPS 连通性(直接测试,不再测 HTTP)
-        cmd = ["curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}"]
+        params = {"proxy": proxy_url}
+        if PROXY_CHECK_API_TOKEN:
+            params["token"] = PROXY_CHECK_API_TOKEN
         
-        if proxy_type in ["socks5", "socks4"]:
-            cmd.extend(["--socks5", f"{host}:{port}"])
-        else:
-            cmd.extend(["-x", f"http://{host}:{port}"])
-        
-        cmd.extend([
-            "--connect-timeout", str(PROXY_TEST_TIMEOUT),
-            "--max-time", str(PROXY_TEST_TIMEOUT),
-            "https://www.cloudflare.com/cdn-cgi/trace"
-        ])
-        
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
+        response = requests.get(
+            PROXY_CHECK_API_URL,
+            params=params,
             timeout=PROXY_TEST_TIMEOUT + 2
         )
         
         latency = int((time.time() - start) * 1000)
         
-        if result.returncode != 0:
+        if response.status_code != 200:
             return {"success": False, "latency": 999999, "https_ok": False}
         
-        http_code = result.stdout.decode().strip()
-        https_ok = http_code in ["200", "204", "301", "302"]
+        result = response.json()
         
-        if not https_ok:
+        if not result.get("success"):
             return {"success": False, "latency": 999999, "https_ok": False}
+        
+        # 从API结果中提取信息
+        location = result.get("location", {})
+        country_code = location.get("country_code", "UNKNOWN")
+        
+        # 更新代理信息
+        if proxy_info.country_code == "UNKNOWN":
+            proxy_info.country_code = country_code
+        
+        proxy_info.api_result = result
         
         # 根据代理类型应用延迟限制
-        max_latency = SOCKS5_MAX_LATENCY if proxy_type == "socks5" else PROXY_MAX_LATENCY
+        max_latency = SOCKS5_MAX_LATENCY if proxy_info.type == "socks5" else PROXY_MAX_LATENCY
         
         if latency > max_latency:
             return {"success": False, "latency": latency, "https_ok": False}
         
         proxy_info.tested_latency = latency
-        proxy_info.https_ok = https_ok
+        proxy_info.https_ok = True
         
         return {
             "success": True,
             "latency": latency,
-            "https_ok": https_ok
+            "https_ok": True,
+            "country_code": country_code
         }
         
     except Exception as e:
-        logging.debug(f"代理 {host}:{port} 测试失败: {e}")
+        logging.debug(f"代理 {proxy_info.host}:{proxy_info.port} API检测失败: {e}")
         return {"success": False, "latency": 999999, "https_ok": False}
 
 # =========================
@@ -524,9 +491,6 @@ def get_proxies(region):
     # 数据源 3: Tomcat1235
     tomcat_proxies = fetch_tomcat1235_proxies(region)
     all_proxies.extend(tomcat_proxies)
-    
-    # 为缺少国家信息的代理补充地理位置
-    locate_proxy_country(all_proxies)
     
     # 地区过滤和映射
     target_country_code = REGION_TO_COUNTRY_CODE.get(region, region.upper())
@@ -566,7 +530,7 @@ def get_proxies(region):
     candidate_proxies = []
     
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_proxy = {executor.submit(test_proxy_latency, p): p for p in test_proxies}
+        future_to_proxy = {executor.submit(check_proxy_with_api, p): p for p in test_proxies}
         
         for future in as_completed(future_to_proxy):
             proxy = future_to_proxy[future]
@@ -842,7 +806,7 @@ def run_internal_tests():
     test_results = {
         "data_sources": {},
         "proxy_tests": {},
-        "ip_location": None,
+        "api_check": None,
         "cf_ip_fetch": None
     }
     
@@ -894,20 +858,25 @@ def run_internal_tests():
         test_results["data_sources"]["tomcat1235"] = False
         logging.error(f"    ✗ Tomcat1235 失败: {e}")
     
-    # 测试 3: IP 地理定位
-    logging.info("\n[测试 3/5] IP 地理定位功能...")
-    try:
-        test_proxy = ProxyInfo("8.8.8.8", 80, "https", "UNKNOWN", source="test")
-        locate_proxy_country([test_proxy])
-        if test_proxy.country_code != "UNKNOWN":
-            logging.info(f"  ✓ IP 定位成功: 8.8.8.8 -> {test_proxy.country_code}")
-            test_results["ip_location"] = True
-        else:
-            logging.warning("  ⚠ IP 定位未返回有效结果")
-            test_results["ip_location"] = False
-    except Exception as e:
-        logging.error(f"  ✗ IP 定位失败: {e}")
-        test_results["ip_location"] = False
+    # 测试 3: API 可用性测试
+    logging.info("\n[测试 3/5] 代理检测 API 测试...")
+    if not PROXY_CHECK_API_URL:
+        logging.warning("  ⚠ 未配置 PROXY_CHECK_API_URL,跳过API测试")
+        test_results["api_check"] = False
+    else:
+        try:
+            # 使用一个公共代理测试API
+            test_proxy = ProxyInfo("8.8.8.8", 1080, "socks5", source="test")
+            result = check_proxy_with_api(test_proxy)
+            if result.get("success") or "latency" in result:
+                logging.info("  ✓ API 响应正常")
+                test_results["api_check"] = True
+            else:
+                logging.warning("  ⚠ API 响应异常")
+                test_results["api_check"] = False
+        except Exception as e:
+            logging.error(f"  ✗ API 测试失败: {e}")
+            test_results["api_check"] = False
     
     # 测试 4: 代理连通性测试
     logging.info("\n[测试 4/5] 代理连通性测试...")
@@ -919,12 +888,12 @@ def run_internal_tests():
     if test_results["data_sources"].get("proxydaily"):
         all_test_proxies.extend(proxydaily_list[:3])
     
-    if all_test_proxies:
+    if all_test_proxies and PROXY_CHECK_API_URL:
         logging.info(f"  测试 {len(all_test_proxies)} 个代理...")
         working_proxies = 0
         
         for proxy in all_test_proxies[:5]:  # 最多测试5个
-            result = test_proxy_latency(proxy)
+            result = check_proxy_with_api(proxy)
             if result["success"]:
                 working_proxies += 1
                 logging.info(f"    ✓ {proxy.host}:{proxy.port} ({proxy.type}) - {result['latency']}ms")
@@ -937,7 +906,7 @@ def run_internal_tests():
         else:
             logging.warning("  ⚠ 没有可用代理")
     else:
-        logging.warning("  ⚠ 无代理可测试")
+        logging.warning("  ⚠ 无代理可测试或API未配置")
         test_results["proxy_tests"]["working_count"] = 0
         test_results["proxy_tests"]["total_tested"] = 0
     
@@ -985,13 +954,13 @@ def run_internal_tests():
         else:
             logging.warning(f"⚠ 数据源 {source}: 失败(非致命)")
     
-    # IP 定位
+    # API 检测
     total_tests += 1
-    if test_results["ip_location"]:
-        logging.info("✓ IP 地理定位: 通过")
+    if test_results["api_check"]:
+        logging.info("✓ 代理检测 API: 通过")
         passed_tests += 1
     else:
-        logging.warning("⚠ IP 地理定位: 失败(非致命)")
+        logging.warning("⚠ 代理检测 API: 未配置或失败(非致命)")
     
     # 代理测试
     total_tests += 1
@@ -1063,7 +1032,7 @@ def load_html_template():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloudflare IP 优选结果</title>
+    <title>Cloudflare IP 优选</title>
     <style>
         * {
             margin: 0;
@@ -1071,13 +1040,13 @@ def load_html_template():
             box-sizing: border-box;
         }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
         .header {
@@ -1090,48 +1059,82 @@ def load_html_template():
             margin-bottom: 10px;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
         }
+        .header .subtitle {
+            font-size: 1em;
+            opacity: 0.95;
+            margin-bottom: 5px;
+        }
         .header .meta {
-            font-size: 0.9em;
-            opacity: 0.9;
+            font-size: 0.85em;
+            opacity: 0.85;
         }
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
             margin-bottom: 30px;
         }
         .stat-card {
             background: white;
-            padding: 20px;
-            border-radius: 10px;
+            padding: 25px;
+            border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
         }
         .stat-card h3 {
             color: #667eea;
             font-size: 0.9em;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            font-weight: 600;
         }
         .stat-card .value {
-            font-size: 2em;
+            font-size: 2.5em;
             font-weight: bold;
             color: #333;
         }
-        .action-buttons {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 30px;
-            flex-wrap: wrap;
+        .stat-card .update-time {
+            margin-top: 8px;
+            font-size: 0.75em;
+            color: #718096;
         }
-        .btn {
-            padding: 12px 24px;
+        .download-section {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .download-section h2 {
+            color: #333;
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .download-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .download-btn {
+            padding: 15px 20px;
             border: none;
             border-radius: 8px;
-            font-size: 1em;
+            font-size: 0.95em;
             cursor: pointer;
             text-decoration: none;
-            display: inline-block;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
             transition: all 0.3s;
             font-weight: 500;
+            text-align: center;
+        }
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
         }
         .btn-primary {
             background: #667eea;
@@ -1139,8 +1142,6 @@ def load_html_template():
         }
         .btn-primary:hover {
             background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
         .btn-success {
             background: #48bb78;
@@ -1148,35 +1149,60 @@ def load_html_template():
         }
         .btn-success:hover {
             background: #38a169;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .btn-info {
+            background: #4299e1;
+            color: white;
+        }
+        .btn-info:hover {
+            background: #3182ce;
+        }
+        .region-section {
+            margin-bottom: 30px;
+        }
+        .region-section h2 {
+            color: white;
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
         .region-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: 20px;
-            margin-bottom: 30px;
         }
         .region-card {
             background: white;
             border-radius: 12px;
             overflow: hidden;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            transition: transform 0.3s;
+            transition: transform 0.3s, box-shadow 0.3s;
         }
         .region-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 8px 12px rgba(0,0,0,0.15);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
         }
         .region-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 15px 20px;
-            font-size: 1.3em;
+            padding: 18px 20px;
+            font-size: 1.2em;
             font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .region-count {
+            font-size: 0.8em;
+            opacity: 0.9;
         }
         .region-body {
             padding: 20px;
+        }
+        .ip-list {
+            margin-bottom: 15px;
         }
         .ip-item {
             padding: 12px;
@@ -1184,26 +1210,34 @@ def load_html_template():
             background: #f7fafc;
             border-radius: 8px;
             border-left: 4px solid #667eea;
+            transition: background 0.2s;
+        }
+        .ip-item:hover {
+            background: #edf2f7;
         }
         .ip-item:last-child {
             margin-bottom: 0;
         }
         .ip-address {
-            font-family: 'Courier New', monospace;
-            font-size: 1.1em;
+            font-family: 'Courier New', 'Consolas', monospace;
+            font-size: 1.05em;
             color: #2d3748;
-            margin-bottom: 5px;
+            margin-bottom: 6px;
+            font-weight: 600;
         }
         .ip-meta {
             font-size: 0.85em;
             color: #718096;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
         }
         .badge {
             display: inline-block;
-            padding: 4px 8px;
+            padding: 3px 8px;
             border-radius: 4px;
-            font-size: 0.8em;
-            margin-right: 5px;
+            font-size: 0.85em;
+            font-weight: 500;
         }
         .badge-score {
             background: #48bb78;
@@ -1213,22 +1247,69 @@ def load_html_template():
             background: #4299e1;
             color: white;
         }
+        .badge-colo {
+            background: #ed8936;
+            color: white;
+        }
+        .region-downloads {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .region-download-btn {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9em;
+            cursor: pointer;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        .region-download-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
         .footer {
             text-align: center;
             color: white;
-            margin-top: 30px;
-            opacity: 0.8;
+            margin-top: 40px;
+            padding: 20px;
+            opacity: 0.9;
+        }
+        .footer p {
+            margin: 5px 0;
+        }
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            .download-grid {
+                grid-template-columns: 1fr;
+            }
+            .region-grid {
+                grid-template-columns: 1fr;
+            }
+            .region-downloads {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🌐 Cloudflare IP 优选结果</h1>
-            <div class="meta">
-                <div>生成时间: {{GENERATED_TIME}}</div>
-                <div>数据源: Proxifly + ProxyDaily + Tomcat1235 | 协议: HTTPS + SOCKS5</div>
-            </div>
+            <h1>🌐 Cloudflare IP 优选</h1>
+            <div class="subtitle">多数据源 | HTTPS + SOCKS5 | API智能检测</div>
+            <div class="meta">更新时间: {{GENERATED_TIME}}</div>
         </div>
 
         <div class="stats-grid">
@@ -1237,28 +1318,40 @@ def load_html_template():
                 <div class="value">{{TOTAL_NODES}}</div>
             </div>
             <div class="stat-card">
-                <h3>覆盖地区</h3>
+                <h3>数据源</h3>
                 <div class="value">{{TOTAL_REGIONS}}</div>
             </div>
             <div class="stat-card">
-                <h3>可用代理数</h3>
+                <h3>支持协议</h3>
                 <div class="value">{{TOTAL_PROXIES}}</div>
             </div>
         </div>
 
-        <div class="action-buttons">
-            <a href="ip_all.txt" class="btn btn-primary" download>📥 下载全部IP</a>
-            <a href="ip_candidates.json" class="btn btn-primary" download>📥 下载JSON数据</a>
-            <a href="proxy_all.txt" class="btn btn-success" download>🔒 下载代理列表</a>
+        <div class="download-section">
+            <h2>📦 下载文件</h2>
+            <div class="download-grid">
+                <a href="ip_all.txt" class="download-btn btn-primary" download>
+                    🌍 全部
+                </a>
+                <a href="ip_candidates.json" class="download-btn btn-info" download>
+                    📄 JSON
+                </a>
+                <a href="proxy_all.txt" class="download-btn btn-success" download>
+                    🔑 代理列表
+                </a>
+            </div>
         </div>
 
-        <div class="region-grid">
-            {{REGION_CARDS}}
+        <div class="region-section">
+            <h2>🗺️ Top 50 节点</h2>
+            <div class="region-grid">
+                {{REGION_CARDS}}
+            </div>
         </div>
 
         <div class="footer">
-            <p>Powered by Cloudflare IP Scanner V2.0</p>
-            <p>🚀 多数据源聚合 | 智能代理池 | 自动化测试</p>
+            <p><strong>Powered by Cloudflare IP Scanner V2.0 API Edition</strong></p>
+            <p>🚀 多数据源聚合 | 智能API检测 | 自动化测试</p>
         </div>
     </div>
 </body>
@@ -1280,13 +1373,14 @@ def generate_html(all_nodes, region_results, region_proxies):
         # 每个地区的IP列表
         ip_items_html = []
         for node in nodes[:MAX_OUTPUT_PER_REGION]:
+            min_latency = min(node['latencies'])
             ip_html = f"""
             <div class="ip-item">
                 <div class="ip-address">{node['ip']}:{node['port']}</div>
                 <div class="ip-meta">
-                    <span class="badge badge-score">分数: {node['score']}</span>
-                    <span class="badge badge-latency">延迟: {min(node['latencies'])}ms</span>
-                    <span>COLO: {node['colo']}</span>
+                    <span class="badge badge-score">分数 {node['score']}</span>
+                    <span class="badge badge-latency">延迟 {min_latency}ms</span>
+                    <span class="badge badge-colo">COLO {node['colo']}</span>
                 </div>
             </div>"""
             ip_items_html.append(ip_html)
@@ -1294,17 +1388,20 @@ def generate_html(all_nodes, region_results, region_proxies):
         # 地区卡片
         card_html = f"""
         <div class="region-card">
-            <div class="region-header">{region} ({len(nodes)} 节点)</div>
+            <div class="region-header">
+                <span>{region}</span>
+                <span class="region-count">{len(nodes)} 节点</span>
+            </div>
             <div class="region-body">
-                {''.join(ip_items_html)}
-                <div style="margin-top: 15px;">
-                    <a href="ip_{region}.txt" class="btn btn-primary" download style="width: 100%; text-align: center;">
-                        📥 下载 {region} IP列表
-                    </a>
+                <div class="ip-list">
+                    {''.join(ip_items_html)}
                 </div>
-                <div style="margin-top: 10px;">
-                    <a href="proxy_{region}.txt" class="btn btn-success" download style="width: 100%; text-align: center;">
-                        🔒 下载 {region} 代理列表
+                <div class="region-downloads">
+                    <a href="ip_{region}.txt" class="region-download-btn btn-primary" download>
+                        📥 IP列表
+                    </a>
+                    <a href="proxy_{region}.txt" class="region-download-btn btn-success" download>
+                        🔑 代理列表
                     </a>
                 </div>
             </div>
@@ -1336,12 +1433,19 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     
     logging.info(f"\n{'#'*60}")
-    logging.info(f"# Cloudflare IP 优选扫描器 V2.0")
+    logging.info(f"# Cloudflare IP 优选扫描器 V2.0 API Edition")
     logging.info(f"# 数据源: Proxifly + ProxyDaily + Tomcat1235")
     logging.info(f"# 支持协议: HTTPS + SOCKS5 (优先)")
+    logging.info(f"# 检测方式: API智能检测")
     logging.info(f"# 每地区代理数: {MAX_PROXIES_PER_REGION}")
     logging.info(f"# 每地区输出数: {MAX_OUTPUT_PER_REGION}")
     logging.info(f"{'#'*60}\n")
+    
+    # 检查API配置
+    if not PROXY_CHECK_API_URL:
+        logging.warning("⚠ 未配置 PROXY_CHECK_API_URL")
+        logging.warning("⚠ 请在脚本开头设置 PROXY_CHECK_API_URL 和 PROXY_CHECK_API_TOKEN")
+        logging.warning("⚠ 将继续运行但代理检测功能将不可用\n")
     
     # 运行内部测试
     if not run_internal_tests():
@@ -1423,9 +1527,10 @@ def main():
                 "generated_at": datetime.utcnow().isoformat() + "Z",
                 "total_nodes": len(all_nodes),
                 "regions": {r: len(nodes) for r, nodes in region_results.items()},
-                "version": "2.0",
+                "version": "2.0-api",
                 "data_sources": ["proxifly", "proxydaily", "tomcat1235"],
                 "protocols": ["https", "socks5"],
+                "proxy_check_method": "api",
                 "total_proxies": sum(len(proxies) for proxies in region_proxies.values())
             },
             "nodes": all_nodes[:200]
