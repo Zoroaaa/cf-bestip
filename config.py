@@ -67,19 +67,26 @@ REGION_CONFIG = {
     "SG": {"codes": ["SG"], "sample": SAMPLE_SIZE_PER_REGION},
 }
 
-# COLO → Region 映射
+# COLO → Region 映射（补充常见的）
 COLO_MAP = {
+    # 原有部分
     "HKG": "HK", "SIN": "SG", "NRT": "JP", "KIX": "JP",
     "ICN": "KR", "TPE": "TW",
     "SYD": "AU", "MEL": "AU",
-    "LAX": "US", "SJC": "US", "SFO": "US",
-    "SEA": "US", "ORD": "US", "DFW": "US",
-    "ATL": "US", "IAD": "US", "EWR": "US",
-    "JFK": "US", "BOS": "US", "MIA": "US",
-    "PHX": "US", "DEN": "US", "IAH": "US",
-    "FRA": "DE", "MUC": "DE", "AMS": "DE",
-    "LHR": "UK", "LGW": "UK", "MAN": "UK",
+    "LAX": "US", "SJC": "US", "SFO": "US", "SEA": "US",
+    "ORD": "US", "DFW": "US", "ATL": "US", "IAD": "US",
     "YYZ": "CA", "YVR": "CA",
+    "FRA": "DE", "MUC": "DE",
+    "LHR": "GB", "LGW": "GB", "MAN": "GB",
+
+    # 新增 / 补充
+    "YUL": "CA", "YEG": "CA",       # 加拿大其他
+    "PEK": "CN", "PVG": "CN", "CAN": "CN", "SZX": "CN",  # 中国大陆
+    "CDG": "FR", "MRS": "FR",       # 法国
+    "FCO": "IT", "MXP": "IT",       # 意大利
+    "AMS": "NL",                    # 荷兰
+    "SVO": "RU", "LED": "RU", "DME": "RU",  # 俄罗斯
+    "BOM": "IN", "DEL": "IN",       # 印度
 }
 
 COUNTRY_TO_REGION = {
