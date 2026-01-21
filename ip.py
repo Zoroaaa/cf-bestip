@@ -138,19 +138,22 @@ def test_ip_with_proxy(ip, proxy=None):
 
 
 def weighted_random_ips(cidrs, total):
+    result = []
+
     pools = []
     for c in cidrs:
         net = ipaddress.ip_network(c)
         pools.append((net, net.num_addresses))
 
     total_weight = sum(w for _, w in pools)
-    result = []
 
     for net, weight in pools:
         cnt = max(1, int(total * weight / total_weight))
-        hosts = list(net.hosts())
-        if hosts:
-            result.extend(random.sample(hosts, min(cnt, len(hosts))))
+
+        for _ in range(cnt):
+            offset = random.randint(1, net.num_addresses - 2)
+            ip = net.network_address + offset
+            result.append(ip)
 
     random.shuffle(result)
     return result[:total]
