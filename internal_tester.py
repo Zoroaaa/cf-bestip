@@ -3,9 +3,11 @@ import requests
 import time
 import logging
 import random
+import subprocess
+import ipaddress
 from models import ProxyInfo
 from config import PROXY_CHECK_API_URL, PROXY_CHECK_API_TOKEN, CF_IPS_V4_URL, TRACE_DOMAINS
-from config import REGION_CONFIG, REGION_TO_COUNTRY_CODE
+from config import REGION_CONFIG, REGION_TO_COUNTRY_CODE, DATA_SOURCE_REGION_MAPPING
 from data_sources import DataSourceManager
 from proxy_tester import ProxyTester
 
@@ -50,51 +52,51 @@ class InternalTester:
                 self.logger.info(f"  ✓ 成功获取 {len(cidrs)} 个 IP 段")
                 return True
             else:
-                self.logger.error("  ✗✗✗✗ IP 段列表为空")
+                self.logger.error("  ✗✗✗✗✗✗✗✗ IP 段列表为空")
                 return False
         except Exception as e:
-            self.logger.error(f"  ✗✗✗✗ 获取失败: {e}")
+            self.logger.error(f"  ✗✗✗✗✗✗✗✗ 获取失败: {e}")
             return False
     
     def _test_data_sources(self):
         """测试数据源可用性"""
         self.logger.info("\n[测试 2/5] 代理数据源测试...")
-        # 随机选择一个地区进行数据源测试
-        available_regions = list(REGION_CONFIG.keys())
-        test_region = random.choice(available_regions)
-        self.logger.info(f"  随机选择测试地区: {test_region}")
+        
+        # 根据新的数据源映射策略选择测试地区
+        test_regions_mapping = {
+            "proxifly": ["US", "IT", "FR"],  # 测试主要地区
+            "proxydaily": ["IT", "FR"],      # 固定测试IT和FR
+            "tomcat1235": ["US"]             # 固定测试US
+        }
         
         results = {}
         
-        # Proxifly
-        self.logger.info("  测试 Proxifly...")
-        try:
-            proxifly_list = self.data_source_manager._fetch_proxifly_proxies(test_region)
-            results["proxifly"] = len(proxifly_list) > 0
-            self.logger.info(f"    ✓ Proxifly: {len(proxifly_list)} 个代理")
-        except Exception as e:
-            results["proxifly"] = False
-            self.logger.error(f"    ✗✗✗✗ Proxifly 失败: {e}")
-        
-        # ProxyDaily
-        self.logger.info("  测试 ProxyDaily...")
-        try:
-            proxydaily_list = self.data_source_manager._fetch_proxydaily_proxies(test_region)
-            results["proxydaily"] = len(proxydaily_list) > 0
-            self.logger.info(f"    ✓ ProxyDaily: {len(proxydaily_list)} 个代理")
-        except Exception as e:
-            results["proxydaily"] = False
-            self.logger.error(f"    ✗✗✗✗ ProxyDaily 失败: {e}")
-        
-        # Tomcat1235
-        self.logger.info("  测试 Tomcat1235...")
-        try:
-            tomcat_list = self.data_source_manager._fetch_tomcat1235_proxies(test_region)
-            results["tomcat1235"] = len(tomcat_list) > 0
-            self.logger.info(f"    ✓ Tomcat1235: {len(tomcat_list)} 个代理")
-        except Exception as e:
-            results["tomcat1235"] = False
-            self.logger.error(f"    ✗✗✗✗ Tomcat1235 失败: {e}")
+        # 分别测试每个数据源
+        for source_name, test_regions in test_regions_mapping.items():
+            self.logger.info(f"  测试 {source_name}...")
+            source_success = False
+            
+            for region in test_regions:
+                try:
+                    if source_name == "proxifly":
+                        proxy_list = self.data_source_manager._fetch_proxifly_proxies(region)
+                    elif source_name == "proxydaily":
+                        proxy_list = self.data_source_manager._fetch_proxydaily_proxies(region)
+                    elif source_name == "tomcat1235":
+                        proxy_list = self.data_source_manager._fetch_tomcat1235_proxies(region)
+                    
+                    if proxy_list:
+                        source_success = True
+                        self.logger.info(f"    ✓ {source_name} {region}: {len(proxy_list)} 个代理")
+                        break  # 只要有一个地区成功就认为数据源可用
+                        
+                except Exception as e:
+                    self.logger.debug(f"    {source_name} {region} 获取失败: {e}")
+                    continue
+            
+            results[source_name] = source_success
+            if not source_success:
+                self.logger.error(f"    ✗✗✗✗✗✗✗✗ {source_name} 所有测试地区均失败")
         
         return {"data_sources": results}
     
@@ -102,7 +104,7 @@ class InternalTester:
         """测试 API 可用性"""
         self.logger.info("\n[测试 3/5] 代理检测 API 测试...")
         if not PROXY_CHECK_API_URL:
-            self.logger.warning("  ⚠⚠⚠⚠⚠ 未配置 PROXY_CHECK_API_URL,跳过API测试")
+            self.logger.warning("  ⚠⚠⚠⚠⚠⚠⚠ 未配置 PROXY_CHECK_API_URL,跳过API测试")
             return False
         
         try:
@@ -113,10 +115,10 @@ class InternalTester:
                 self.logger.info("  ✓ API 响应正常")
                 return True
             else:
-                self.logger.warning("  ⚠⚠⚠⚠⚠ API 响应异常")
+                self.logger.warning("  ⚠⚠⚠⚠⚠⚠⚠ API 响应异常")
                 return False
         except Exception as e:
-            self.logger.error(f"  ✗✗✗✗ API 测试失败: {e}")
+            self.logger.error(f"  ✗✗✗✗✗✗✗✗ API 测试失败: {e}")
             return False
     
     def _test_proxy_connectivity(self):
@@ -125,19 +127,26 @@ class InternalTester:
         
         # 收集所有数据源的所有地区代理
         all_proxies_by_source = {}
-        available_regions = list(REGION_CONFIG.keys())
         
         self.logger.info("  从所有地区收集代理...")
         
-        # 从每个数据源获取所有地区的代理
+        # 从每个数据源获取代理（根据新的映射策略）
         for source_name in ["proxifly", "proxydaily", "tomcat1235"]:
             all_proxies_by_source[source_name] = []
             
-            # 随机选择几个地区进行测试，避免测试时间过长
-            test_regions = random.sample(available_regions, min(3, len(available_regions)))
-            self.logger.info(f"  {source_name} 测试地区: {', '.join(test_regions)}")
+            # 根据数据源映射策略获取对应的地区
+            source_regions = DATA_SOURCE_REGION_MAPPING.get(source_name, {})
+            test_regions = list(source_regions.keys())
             
-            for region in test_regions:
+            if not test_regions:
+                self.logger.info(f"  {source_name}: 无配置地区")
+                continue
+                
+            # 随机选择几个地区进行测试，避免测试时间过长
+            selected_regions = random.sample(test_regions, min(2, len(test_regions)))
+            self.logger.info(f"  {source_name} 测试地区: {', '.join(selected_regions)}")
+            
+            for region in selected_regions:
                 try:
                     if source_name == "proxifly":
                         proxies = self.data_source_manager._fetch_proxifly_proxies(region)
@@ -185,7 +194,7 @@ class InternalTester:
                         total_working += 1
                         self.logger.info(f"    {i}. ✓ {proxy.host}:{proxy.port} - {result['latency']}ms")
                     else:
-                        self.logger.info(f"    {i}. ✗ {proxy.host}:{proxy.port} - 失败")
+                        self.logger.info(f"    {i}. ✗✗ {proxy.host}:{proxy.port} - 失败")
                 
                 total_tested += sample_size
                 results["source_results"][source_name] = {
@@ -203,9 +212,9 @@ class InternalTester:
                 overall_rate = round(total_working / total_tested * 100, 1) if total_tested > 0 else 0
                 self.logger.info(f"\n  ✓ 总体: {total_working}/{total_tested} 个代理可用 ({overall_rate}%)")
             else:
-                self.logger.warning("  ⚠⚠⚠⚠⚠ 没有可用代理")
+                self.logger.warning("  ⚠⚠⚠⚠⚠⚠⚠ 没有可用代理")
         else:
-            self.logger.warning("  ⚠⚠⚠⚠⚠ 无代理可测试或API未配置")
+            self.logger.warning("  ⚠⚠⚠⚠⚠⚠⚠ 无代理可测试或API未配置")
         
         return {"proxy_tests": results}
     
@@ -231,7 +240,7 @@ class InternalTester:
                     successful_tests += 1
                     self.logger.info(f"      ✓ {ip_str} -> {result.get('region', 'UNKNOWN')} ({result['latency']}ms)")
                 else:
-                    self.logger.info(f"      ✗ {ip_str} -> 连接失败")
+                    self.logger.info(f"      ✗✗ {ip_str} -> 连接失败")
             
             success_rate = (successful_tests / len(test_ips)) * 100
             
@@ -239,11 +248,11 @@ class InternalTester:
                 self.logger.info(f"  ✓ Cloudflare IP 测试: {successful_tests}/{len(test_ips)} 成功 ({success_rate:.1f}%)")
                 return True
             else:
-                self.logger.warning(f"  ⚠⚠⚠⚠⚠ Cloudflare IP 测试: 0/{len(test_ips)} 成功")
+                self.logger.warning(f"  ⚠⚠⚠⚠⚠⚠⚠ Cloudflare IP 测试: 0/{len(test_ips)} 成功")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"  ✗✗✗✗ CF IP 测试失败: {e}")
+            self.logger.error(f"  ✗✗✗✗✗✗✗✗ CF IP 测试失败: {e}")
             return False
     
     def _print_test_summary(self, test_results):
@@ -261,7 +270,7 @@ class InternalTester:
             self.logger.info("✓ Cloudflare IP 段获取: 通过")
             passed_tests += 1
         else:
-            self.logger.error("✗✗✗✗ Cloudflare IP 段获取: 失败")
+            self.logger.error("✗✗✗✗✗✗✗✗ Cloudflare IP 段获取: 失败")
         
         # 数据源
         for source, status in test_results["data_sources"].items():
@@ -314,7 +323,7 @@ class InternalTester:
             self.logger.info("✓ CF IP 测试: 通过")
             passed_tests += 1
         else:
-            self.logger.error("✗✗✗✗ CF IP 测试: 失败")
+            self.logger.error("✗✗✗✗✗✗✗✗ CF IP 测试: 失败")
         
         self.logger.info("="*60)
         self.logger.info(f"测试结果: {passed_tests}/{total_tests} 通过")
@@ -323,7 +332,7 @@ class InternalTester:
             self.logger.info("✅ 系统可用性测试通过,可以开始扫描")
             return True
         else:
-            self.logger.error("❌❌❌❌ 系统可用性测试失败,请检查网络和依赖")
+            self.logger.error("❌❌❌❌❌❌❌❌ 系统可用性测试失败,请检查网络和依赖")
             return False
     
     # 工具函数（从主文件复制）
@@ -335,9 +344,6 @@ class InternalTester:
     
     def _weighted_random_ips(self, cidrs, total):
         """加权随机IP生成"""
-        import random
-        import ipaddress
-        
         pools = []
         for c in cidrs:
             net = ipaddress.ip_network(c)
@@ -357,8 +363,6 @@ class InternalTester:
     
     def _curl_test_with_proxy(self, ip, domain, proxy=None):
         """简化版curl测试（用于内部测试）"""
-        import subprocess
-        
         try:
             cmd = ["curl", "-k", "-o", "/dev/null", "-s"]
             
