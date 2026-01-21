@@ -17,8 +17,7 @@ from proxy_sources import (
     fetch_proxifly_proxies,
     fetch_proxydaily_proxies,
     fetch_tomcat1235_proxies,
-    fetch_hookzof_proxies,
-    fetch_proxyscrape_proxies
+    fetch_webshare_proxies
 )
 from tests import check_proxy_with_api, run_internal_tests
 
@@ -260,8 +259,7 @@ def get_proxies(region):
     all_proxies.extend(fetch_proxifly_proxies(region, REGION_TO_COUNTRY_CODE))
     all_proxies.extend(fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=2))
     all_proxies.extend(fetch_tomcat1235_proxies(region))
-    all_proxies.extend(fetch_hookzof_proxies(region))
-    all_proxies.extend(fetch_proxyscrape_proxies(region, REGION_TO_COUNTRY_CODE))
+    all_proxies.extend(fetch_webshare_proxies(region))
 
     target_country_code = REGION_TO_COUNTRY_CODE.get(region, region.upper())
     filtered_proxies = []
