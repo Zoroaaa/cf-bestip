@@ -13,8 +13,7 @@ from proxy_sources import (
     fetch_proxifly_proxies,
     fetch_proxydaily_proxies,
     fetch_tomcat1235_proxies,
-    fetch_hookzof_proxies,
-    fetch_proxyscrape_proxies
+    fetch_webshare_proxies
 )
 
 
@@ -118,8 +117,7 @@ def run_internal_tests():
         ("proxifly",    lambda: fetch_proxifly_proxies(test_region, REGION_TO_COUNTRY_CODE)),
         ("proxydaily",  lambda: fetch_proxydaily_proxies(test_region, REGION_TO_COUNTRY_CODE, max_pages=1)),
         ("tomcat1235",  lambda: fetch_tomcat1235_proxies(test_region)),
-        ("hookzof",     lambda: fetch_hookzof_proxies(test_region)),
-        ("proxyscrape", lambda: fetch_proxyscrape_proxies(test_region, REGION_TO_COUNTRY_CODE)),
+        ("webshare",    lambda: fetch_webshare_proxies(test_region)),
     ]
 
     for name, func in sources:
