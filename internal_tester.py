@@ -200,41 +200,41 @@ class InternalTester:
         return {"proxy_tests": results}
     
     def _test_cf_ip_connectivity(self):
-    """测试 Cloudflare IP 连通性"""
-    self.logger.info("\n[测试 5/5] Cloudflare IP 测试...")
-    try:
-        cidrs = self._fetch_cf_ipv4_cidrs()
-        test_ips = self._weighted_random_ips(cidrs, 5)
-        self.logger.info(f"  测试 {len(test_ips)} 个 Cloudflare IP...")
-        
-        # 测试所有5个IP
-        successful_tests = 0
-        test_domain = "sptest.ittool.pp.ua"
-        
-        for i, test_ip in enumerate(test_ips, 1):
-            ip_str = str(test_ip)
-            self.logger.info(f"    测试第 {i} 个IP: {ip_str}")
+        """测试 Cloudflare IP 连通性"""
+        self.logger.info("\n[测试 5/5] Cloudflare IP 测试...")
+        try:
+            cidrs = self._fetch_cf_ipv4_cidrs()
+            test_ips = self._weighted_random_ips(cidrs, 5)
+            self.logger.info(f"  测试 {len(test_ips)} 个 Cloudflare IP...")
             
-            result = self._curl_test_with_proxy(ip_str, test_domain, None)
+            # 测试所有5个IP
+            successful_tests = 0
+            test_domain = "sptest.ittool.pp.ua"
             
-            if result:
-                successful_tests += 1
-                self.logger.info(f"      ✓ {ip_str} -> {result.get('region', 'UNKNOWN')} ({result['latency']}ms)")
+            for i, test_ip in enumerate(test_ips, 1):
+                ip_str = str(test_ip)
+                self.logger.info(f"    测试第 {i} 个IP: {ip_str}")
+                
+                result = self._curl_test_with_proxy(ip_str, test_domain, None)
+                
+                if result:
+                    successful_tests += 1
+                    self.logger.info(f"      ✓ {ip_str} -> {result.get('region', 'UNKNOWN')} ({result['latency']}ms)")
+                else:
+                    self.logger.info(f"      ✗ {ip_str} -> 连接失败")
+            
+            success_rate = (successful_tests / len(test_ips)) * 100
+            
+            if successful_tests > 0:
+                self.logger.info(f"  ✓ Cloudflare IP 测试: {successful_tests}/{len(test_ips)} 成功 ({success_rate:.1f}%)")
+                return True
             else:
-                self.logger.info(f"      ✗ {ip_str} -> 连接失败")
-        
-        success_rate = (successful_tests / len(test_ips)) * 100
-        
-        if successful_tests > 0:
-            self.logger.info(f"  ✓ Cloudflare IP 测试: {successful_tests}/{len(test_ips)} 成功 ({success_rate:.1f}%)")
-            return True
-        else:
-            self.logger.warning(f"  ⚠⚠⚠⚠⚠ Cloudflare IP 测试: 0/{len(test_ips)} 成功")
+                self.logger.warning(f"  ⚠⚠⚠⚠⚠ Cloudflare IP 测试: 0/{len(test_ips)} 成功")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"  ✗✗✗✗ CF IP 测试失败: {e}")
             return False
-            
-    except Exception as e:
-        self.logger.error(f"  ✗✗✗✗ CF IP 测试失败: {e}")
-        return False
     
     def _print_test_summary(self, test_results):
         """输出测试总结"""
