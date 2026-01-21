@@ -324,11 +324,11 @@ def get_proxies(region):
 
     return best_proxies
     
+
 def quick_curl_probe(proxy):
     test_ip = "1.1.1.1"
     domain = list(TRACE_DOMAINS.values())[0]
     return curl_test_with_proxy(test_ip, domain, proxy) is not None
-
 
 def save_proxy_list(region_proxies):
     all_proxies_lines = []
