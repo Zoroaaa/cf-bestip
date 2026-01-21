@@ -47,59 +47,154 @@ PROXY_CHECK_API_URL = "https://prcheck.ittool.pp.ua/check"
 PROXY_CHECK_API_TOKEN = "588wbb"
 
 # ======================
-# 地区配置
+# 地区配置（完整版）
 # ======================
 
 REGION_CONFIG = {
-    "CA": {"codes": ["CA"], "sample": SAMPLE_SIZE_PER_REGION},
-    "HK": {"codes": ["HK"], "sample": SAMPLE_SIZE_PER_REGION},
-    "DE": {"codes": ["DE"], "sample": SAMPLE_SIZE_PER_REGION},
-    "FR": {"codes": ["FR"], "sample": SAMPLE_SIZE_PER_REGION},
-    "GB": {"codes": ["GB"], "sample": SAMPLE_SIZE_PER_REGION},
-    "IN": {"codes": ["IN"], "sample": SAMPLE_SIZE_PER_REGION},
-    "IT": {"codes": ["IT"], "sample": SAMPLE_SIZE_PER_REGION},
-    "JP": {"codes": ["JP"], "sample": SAMPLE_SIZE_PER_REGION},
-    "NL": {"codes": ["NL"], "sample": SAMPLE_SIZE_PER_REGION},
-    "RU": {"codes": ["RU"], "sample": SAMPLE_SIZE_PER_REGION},
-    "US": {"codes": ["US"], "sample": SAMPLE_SIZE_PER_REGION},
-    "SG": {"codes": ["SG"], "sample": SAMPLE_SIZE_PER_REGION},
+    "CA": {"codes": ["CA"], "sample": SAMPLE_SIZE_PER_REGION, "name": "加拿大"},
+    "HK": {"codes": ["HK"], "sample": SAMPLE_SIZE_PER_REGION, "name": "香港"},
+    "DE": {"codes": ["DE"], "sample": SAMPLE_SIZE_PER_REGION, "name": "德国"},
+    "FR": {"codes": ["FR"], "sample": SAMPLE_SIZE_PER_REGION, "name": "法国"},
+    "GB": {"codes": ["GB"], "sample": SAMPLE_SIZE_PER_REGION, "name": "英国"},
+    "IN": {"codes": ["IN"], "sample": SAMPLE_SIZE_PER_REGION, "name": "印度"},
+    "IT": {"codes": ["IT"], "sample": SAMPLE_SIZE_PER_REGION, "name": "意大利"},
+    "JP": {"codes": ["JP"], "sample": SAMPLE_SIZE_PER_REGION, "name": "日本"},
+    "NL": {"codes": ["NL"], "sample": SAMPLE_SIZE_PER_REGION, "name": "荷兰"},
+    "RU": {"codes": ["RU"], "sample": SAMPLE_SIZE_PER_REGION, "name": "俄罗斯"},
+    "US": {"codes": ["US"], "sample": SAMPLE_SIZE_PER_REGION, "name": "美国"},
+    "SG": {"codes": ["SG"], "sample": SAMPLE_SIZE_PER_REGION, "name": "新加坡"},
 }
 
-# COLO → Region 映射（补充常见的）
+# ======================
+# COLO → Region 映射（大幅扩充）
+# ======================
 COLO_MAP = {
-    # 原有部分
-    "HKG": "HK", "SIN": "SG", "NRT": "JP", "KIX": "JP",
-    "ICN": "KR", "TPE": "TW",
-    "SYD": "AU", "MEL": "AU",
-    "LAX": "US", "SJC": "US", "SFO": "US", "SEA": "US",
-    "ORD": "US", "DFW": "US", "ATL": "US", "IAD": "US",
-    "YYZ": "CA", "YVR": "CA",
-    "FRA": "DE", "MUC": "DE",
-    "LHR": "GB", "LGW": "GB", "MAN": "GB",
-
-    # 新增 / 补充
-    "YUL": "CA", "YEG": "CA",       # 加拿大其他
-    "PEK": "CN", "PVG": "CN", "CAN": "CN", "SZX": "CN",  # 中国大陆
-    "CDG": "FR", "MRS": "FR",       # 法国
-    "FCO": "IT", "MXP": "IT",       # 意大利
-    "AMS": "NL",                    # 荷兰
-    "SVO": "RU", "LED": "RU", "DME": "RU",  # 俄罗斯
-    "BOM": "IN", "DEL": "IN",       # 印度
+    # 北美
+    "YYZ": "CA", "YVR": "CA", "YUL": "CA", "YEG": "CA", "YYC": "CA",  # 加拿大
+    "LAX": "US", "SJC": "US", "SFO": "US", "SEA": "US", "PDX": "US",  # 美国西海岸
+    "ORD": "US", "DFW": "US", "ATL": "US", "IAD": "US", "EWR": "US",  # 美国中部/东部
+    "MIA": "US", "PHX": "US", "DEN": "US", "BOS": "US", "MSP": "US",  # 美国其他
+    "IAH": "US", "DTW": "US", "LAS": "US", "SLC": "US", "CLT": "US",
+    
+    # 亚太
+    "HKG": "HK",  # 香港
+    "SIN": "SG",  # 新加坡
+    "NRT": "JP", "KIX": "JP", "HND": "JP",  # 日本
+    "ICN": "KR", "GMP": "KR",  # 韩国
+    "TPE": "TW",  # 台湾
+    "SYD": "AU", "MEL": "AU", "BNE": "AU", "PER": "AU",  # 澳大利亚
+    "AKL": "NZ",  # 新西兰
+    "BKK": "TH",  # 泰国
+    "KUL": "MY",  # 马来西亚
+    "MNL": "PH",  # 菲律宾
+    "CGK": "ID",  # 印尼
+    "HAN": "VN", "SGN": "VN",  # 越南
+    "BOM": "IN", "DEL": "IN", "MAA": "IN", "BLR": "IN",  # 印度
+    
+    # 中国大陆
+    "PEK": "CN", "PVG": "CN", "CAN": "CN", "SZX": "CN", "CTU": "CN",
+    "CKG": "CN", "XIY": "CN", "WUH": "CN", "HGH": "CN", "NKG": "CN",
+    
+    # 欧洲
+    "LHR": "GB", "LGW": "GB", "MAN": "GB", "EDI": "GB",  # 英国
+    "FRA": "DE", "MUC": "DE", "TXL": "DE", "HAM": "DE",  # 德国
+    "CDG": "FR", "MRS": "FR", "ORY": "FR",  # 法国
+    "AMS": "NL", "RTM": "NL",  # 荷兰
+    "FCO": "IT", "MXP": "IT", "VCE": "IT",  # 意大利
+    "MAD": "ES", "BCN": "ES",  # 西班牙
+    "LIS": "PT",  # 葡萄牙
+    "ZRH": "CH", "GVA": "CH",  # 瑞士
+    "VIE": "AT",  # 奥地利
+    "BRU": "BE",  # 比利时
+    "CPH": "DK",  # 丹麦
+    "OSL": "NO",  # 挪威
+    "ARN": "SE", "STO": "SE",  # 瑞典
+    "HEL": "FI",  # 芬兰
+    "WAW": "PL",  # 波兰
+    "PRG": "CZ",  # 捷克
+    "BUD": "HU",  # 匈牙利
+    "OTP": "RO",  # 罗马尼亚
+    "ATH": "GR",  # 希腊
+    "IST": "TR",  # 土耳其
+    "SVO": "RU", "LED": "RU", "DME": "RU", "VKO": "RU",  # 俄罗斯
+    
+    # 中东
+    "DXB": "AE", "AUH": "AE",  # 阿联酋
+    "DOH": "QA",  # 卡塔尔
+    "BAH": "BH",  # 巴林
+    "KWI": "KW",  # 科威特
+    "RUH": "SA", "JED": "SA",  # 沙特
+    "TLV": "IL",  # 以色列
+    "AMM": "JO",  # 约旦
+    
+    # 南美
+    "GRU": "BR", "GIG": "BR", "BSB": "BR",  # 巴西
+    "EZE": "AR", "AEP": "AR",  # 阿根廷
+    "SCL": "CL",  # 智利
+    "BOG": "CO",  # 哥伦比亚
+    "LIM": "PE",  # 秘鲁
+    
+    # 非洲
+    "JNB": "ZA", "CPT": "ZA",  # 南非
+    "CAI": "EG",  # 埃及
+    "LOS": "NG",  # 尼日利亚
+    "NBO": "KE",  # 肯尼亚
 }
 
+# ======================
+# Country Code → Region 映射（扩充）
+# ======================
 COUNTRY_TO_REGION = {
-    "CA": "CA",
-    "HK": "HK",
-    "DE": "DE",
-    "FR": "FR",
-    "GB": "GB",
-    "IN": "IN",
-    "IT": "IT",
-    "JP": "JP",
-    "NL": "NL",
-    "RU": "RU",
-    "US": "US",
-    "SG": "SG",
+    "CA": "CA",  # 加拿大
+    "HK": "HK",  # 香港
+    "DE": "DE",  # 德国
+    "FR": "FR",  # 法国
+    "GB": "GB",  # 英国
+    "IN": "IN",  # 印度
+    "IT": "IT",  # 意大利
+    "JP": "JP",  # 日本
+    "NL": "NL",  # 荷兰
+    "RU": "RU",  # 俄罗斯
+    "US": "US",  # 美国
+    "SG": "SG",  # 新加坡
+    
+    # 其他可能的代理来源国家，映射到最近的配置地区
+    "KR": "JP",  # 韩国 → 日本
+    "TW": "HK",  # 台湾 → 香港
+    "AU": "SG",  # 澳大利亚 → 新加坡
+    "TH": "SG",  # 泰国 → 新加坡
+    "MY": "SG",  # 马来西亚 → 新加坡
+    "PH": "SG",  # 菲律宾 → 新加坡
+    "ID": "SG",  # 印尼 → 新加坡
+    "VN": "SG",  # 越南 → 新加坡
+    "CN": "HK",  # 中国 → 香港
+    
+    "ES": "FR",  # 西班牙 → 法国
+    "PT": "FR",  # 葡萄牙 → 法国
+    "CH": "DE",  # 瑞士 → 德国
+    "AT": "DE",  # 奥地利 → 德国
+    "BE": "NL",  # 比利时 → 荷兰
+    "DK": "DE",  # 丹麦 → 德国
+    "NO": "DE",  # 挪威 → 德国
+    "SE": "DE",  # 瑞典 → 德国
+    "FI": "RU",  # 芬兰 → 俄罗斯
+    "PL": "DE",  # 波兰 → 德国
+    "CZ": "DE",  # 捷克 → 德国
+    "HU": "DE",  # 匈牙利 → 德国
+    "RO": "RU",  # 罗马尼亚 → 俄罗斯
+    "GR": "IT",  # 希腊 → 意大利
+    "TR": "RU",  # 土耳其 → 俄罗斯
+    
+    "AE": "IN",  # 阿联酋 → 印度
+    "QA": "IN",  # 卡塔尔 → 印度
+    "SA": "IN",  # 沙特 → 印度
+    
+    "BR": "US",  # 巴西 → 美国
+    "AR": "US",  # 阿根廷 → 美国
+    "CL": "US",  # 智利 → 美国
+    "MX": "US",  # 墨西哥 → 美国
+    
+    "ZA": "GB",  # 南非 → 英国
 }
 
 REGION_TO_COUNTRY_CODE = {
