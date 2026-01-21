@@ -90,16 +90,33 @@ COLO_MAP = {
 }
 
 COUNTRY_TO_REGION = {
-    "HK": "HK", "SG": "SG", "JP": "JP", "KR": "KR", "TW": "TW",
-    "US": "US", "DE": "DE", "GB": "UK", "AU": "AU", "CA": "CA",
-    "FR": "DE", "NL": "DE", "IT": "DE", "ES": "DE",
-    "BR": "US", "MX": "US", "AR": "US",
-    "IN": "SG", "TH": "SG", "ID": "SG", "MY": "SG",
+    "CA": "CA",
+    "CN": "CN",
+    "DE": "DE",
+    "FR": "FR",
+    "GB": "GB",
+    "IN": "IN",
+    "IT": "IT",
+    "JP": "JP",
+    "NL": "NL",
+    "RU": "RU",
+    "US": "US",
+    "SG": "SG",
 }
 
 REGION_TO_COUNTRY_CODE = {
-    "HK": "HK", "SG": "SG", "JP": "JP", "KR": "KR", "TW": "TW",
-    "US": "US", "DE": "DE", "UK": "GB", "AU": "AU", "CA": "CA",
+    "CA": "CA",
+    "CN": "CN",
+    "DE": "DE",
+    "FR": "FR",
+    "GB": "GB",
+    "IN": "IN",
+    "IT": "IT",
+    "JP": "JP",
+    "NL": "NL",
+    "RU": "RU",
+    "US": "US",
+    "SG": "SG",
 }
 
 # ======================
