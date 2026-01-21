@@ -34,6 +34,14 @@ logging.basicConfig(
 
 
 # ────────────────────────────────────────────────
+# Trace 域名（单 view）
+# ────────────────────────────────────────────────
+TRACE_DOMAINS = {
+    "v0": "sptest.ittool.pp.ua"
+}
+
+
+# ────────────────────────────────────────────────
 # 运行环境检查
 # ────────────────────────────────────────────────
 def check_runtime_dependencies():
@@ -72,23 +80,18 @@ def curl_test_with_proxy(ip, domain, proxy=None):
             stderr=subprocess.DEVNULL
         )
         parts = out.decode().strip().split()
-
         if len(parts) < 3:
             return None
 
-        tc, ta, code = parts[0], parts[1], parts[2]
-
+        tc, ta, code = parts
         if code in ["000", "0"]:
             return None
 
         latency = int((float(tc) + float(ta)) * 1000)
-
         if latency > LATENCY_LIMIT:
             return None
 
-        # 获取 CF-Ray
         hdr_cmd = ["curl", "-k", "-sI"]
-
         if proxy:
             if proxy.type in ['socks5', 'socks4']:
                 hdr_cmd.extend(["--socks5", f"{proxy.host}:{proxy.port}"])
@@ -150,21 +153,19 @@ def test_ip_with_proxy(ip, proxy=None):
 # IP 采样（修复内存风险）
 # ────────────────────────────────────────────────
 def weighted_random_ips(cidrs, total):
-    result = []
-
     pools = []
     for c in cidrs:
         net = ipaddress.ip_network(c)
         pools.append((net, net.num_addresses))
 
     total_weight = sum(w for _, w in pools)
+    result = []
 
     for net, weight in pools:
         cnt = max(1, int(total * weight / total_weight))
         for _ in range(cnt):
             offset = random.randint(1, net.num_addresses - 2)
-            ip = net.network_address + offset
-            result.append(ip)
+            result.append(net.network_address + offset)
 
     random.shuffle(result)
     return result[:total]
@@ -174,17 +175,16 @@ def weighted_random_ips(cidrs, total):
 # 评分
 # ────────────────────────────────────────────────
 def score_ip(latencies):
-    if len(latencies) < 2:
+    if not latencies:
         return 0
 
     lat_min = min(latencies)
     lat_max = max(latencies)
 
-    s_stability = len(latencies) / len(TRACE_DOMAINS)
     s_consistency = max(0.3, 1 - (lat_max - lat_min) / LATENCY_LIMIT)
     s_latency = 1 / (1 + lat_min / 100)
 
-    return round(s_stability * s_consistency * s_latency, 4)
+    return round(s_consistency * s_latency, 4)
 
 
 def aggregate_nodes(raw):
@@ -213,12 +213,11 @@ def aggregate_nodes(raw):
 
 
 # ────────────────────────────────────────────────
-# 快速代理真实性验证（新增）
+# 快速代理真实性验证
 # ────────────────────────────────────────────────
 def quick_proxy_probe(proxy):
-    test_ip = "1.1.1.1"
     domain = list(TRACE_DOMAINS.values())[0]
-    return curl_test_with_proxy(test_ip, domain, proxy) is not None
+    return curl_test_with_proxy("1.1.1.1", domain, proxy) is not None
 
 
 # ────────────────────────────────────────────────
@@ -226,51 +225,30 @@ def quick_proxy_probe(proxy):
 # ────────────────────────────────────────────────
 def get_proxies(region):
     all_proxies = []
-
     all_proxies.extend(fetch_proxifly_proxies(region, REGION_TO_COUNTRY_CODE))
     all_proxies.extend(fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=2))
     all_proxies.extend(fetch_tomcat1235_proxies(region))
     all_proxies.extend(fetch_webshare_proxies(region))
 
-    target_country_code = REGION_TO_COUNTRY_CODE.get(region, region.upper())
-    filtered_proxies = []
-
-    for proxy in all_proxies:
-        if proxy.country_code == target_country_code:
-            filtered_proxies.append(proxy)
-            continue
-        mapped_region = COUNTRY_TO_REGION.get(proxy.country_code)
-        if mapped_region == region:
-            filtered_proxies.append(proxy)
-
-    if not filtered_proxies:
-        logging.warning(f"⚠ {region} 无匹配代理，使用全部代理")
-        filtered_proxies = all_proxies
-
-    logging.info(f"{region} 共收集 {len(filtered_proxies)} 个代理")
-
-    if not filtered_proxies:
+    if not all_proxies:
         return []
 
-    test_proxies = filtered_proxies[:50]
-    candidate_proxies = []
+    test_proxies = all_proxies[:50]
+    candidates = []
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_proxy = {executor.submit(check_proxy_with_api, p): p for p in test_proxies}
-        for future in as_completed(future_to_proxy):
-            proxy = future_to_proxy[future]
+        future_map = {executor.submit(check_proxy_with_api, p): p for p in test_proxies}
+        for future in as_completed(future_map):
+            proxy = future_map[future]
             try:
-                result = future.result()
-                if result["success"] and quick_proxy_probe(proxy):
-                    candidate_proxies.append(proxy)
+                r = future.result()
+                if r["success"] and quick_proxy_probe(proxy):
+                    candidates.append(proxy)
             except Exception:
                 pass
 
-    if not candidate_proxies:
-        return []
-
-    candidate_proxies.sort(key=lambda x: x.tested_latency or 999999)
-    return candidate_proxies[:MAX_PROXIES_PER_REGION]
+    candidates.sort(key=lambda x: x.tested_latency or 999999)
+    return candidates[:MAX_PROXIES_PER_REGION]
 
 
 # ────────────────────────────────────────────────
@@ -283,7 +261,7 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    logging.info("Cloudflare IP 优选扫描器 V2.0 API Edition")
+    logging.info("Cloudflare IP 优选扫描器（Single View Mode）")
 
     if not run_internal_tests():
         logging.error("内部自检未通过，程序退出")
@@ -291,32 +269,24 @@ def main():
 
     cidrs = fetch_cf_ipv4_cidrs()
     if not cidrs:
-        logging.error("无法获取 Cloudflare IP 段，程序退出")
+        logging.error("无法获取 Cloudflare IP 段")
         return
 
     total_ips = sum(cfg["sample"] for cfg in REGION_CONFIG.values())
-    all_test_ips = weighted_random_ips(cidrs, total_ips)
+    all_ips = weighted_random_ips(cidrs, total_ips)
 
-    all_results = []
-    region_results = {}
-    region_proxies = {}
-
-    ip_offset = 0
-    for region, config in REGION_CONFIG.items():
-        sample_size = config["sample"]
-        region_ips = all_test_ips[ip_offset:ip_offset + sample_size]
-        ip_offset += sample_size
+    offset = 0
+    for region, cfg in REGION_CONFIG.items():
+        ips = all_ips[offset:offset + cfg["sample"]]
+        offset += cfg["sample"]
 
         proxies = get_proxies(region)
-        region_proxies[region] = proxies
-
         raw = []
-        for ip in region_ips:
+
+        for ip in ips:
             raw.extend(test_ip_with_proxy(ip, proxies[0] if proxies else None))
 
-        nodes = aggregate_nodes(raw)
-        region_results[region] = nodes
-        all_results.extend(raw)
+        aggregate_nodes(raw)
 
     logging.info("✅ 扫描完成")
 
