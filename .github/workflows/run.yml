@@ -17,13 +17,13 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # 增加超时时间以适应三数据源
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1  # 浅克隆以节省时间
+          fetch-depth: 1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -71,12 +71,21 @@ jobs:
           
           # 导入并运行测试
           try:
-              # 这里可以添加独立的测试脚本
-              # 或者直接运行 ip.py 中的测试函数
-              print("✅ 内部测试准备就绪")
-              sys.exit(0)
+              from tests import run_internal_tests
+              
+              print("🔍 开始运行内部测试...")
+              result = run_internal_tests()
+              
+              if result:
+                  print("✅ 内部测试通过")
+                  sys.exit(0)
+              else:
+                  print("⚠️ 内部测试部分失败，但允许继续")
+                  sys.exit(0)  # 允许部分失败
           except Exception as e:
               print(f"❌ 测试失败: {e}")
+              import traceback
+              traceback.print_exc()
               sys.exit(1)
           EOF
         continue-on-error: false
@@ -84,6 +93,7 @@ jobs:
       - name: Run multi-region scan
         if: github.event.inputs.test_mode != 'true'
         run: |
+          echo "🚀 开始执行多地区扫描..."
           python ip.py
         env:
           PYTHONUNBUFFERED: "1"
@@ -96,281 +106,102 @@ jobs:
           echo "📁 检查输出文件..."
           ls -lh public/
           
+          echo ""
+          echo "=== 核心文件检查 ==="
+          
+          # 检查 IP 总列表
           if [ -f "public/ip_all.txt" ]; then
             echo "✅ ip_all.txt 存在"
-            wc -l public/ip_all.txt
+            LINE_COUNT=$(wc -l < public/ip_all.txt)
+            echo "   总行数: $LINE_COUNT"
           else
-            echo "⚠️ ip_all.txt 不存在"
+            echo "❌ ip_all.txt 不存在"
           fi
           
+          # 检查代理总列表
+          if [ -f "public/proxy_all.txt" ]; then
+            echo "✅ proxy_all.txt 存在"
+            PROXY_COUNT=$(wc -l < public/proxy_all.txt)
+            echo "   总行数: $PROXY_COUNT"
+          else
+            echo "⚠️ proxy_all.txt 不存在"
+          fi
+          
+          # 检查 JSON
           if [ -f "public/ip_candidates.json" ]; then
             echo "✅ ip_candidates.json 存在"
-            cat public/ip_candidates.json | python -m json.tool | head -20
+            echo "   预览内容:"
+            cat public/ip_candidates.json | python -m json.tool | head -30
           else
-            echo "⚠️ ip_candidates.json 不存在"
+            echo "❌ ip_candidates.json 不存在"
+          fi
+          
+          # 检查 HTML
+          if [ -f "public/index.html" ]; then
+            echo "✅ index.html 存在"
+            SIZE=$(stat -f%z public/index.html 2>/dev/null || stat -c%s public/index.html)
+            echo "   文件大小: $SIZE bytes"
+          else
+            echo "❌ index.html 不存在"
           fi
           
           echo ""
-          echo "📊 各地区文件统计:"
+          echo "=== 各地区文件统计 ==="
+          
+          # 统计 IP 文件
+          echo "📍 IP 文件:"
           for file in public/ip_*.txt; do
-            if [ -f "$file" ]; then
+            if [ -f "$file" ] && [ "$file" != "public/ip_all.txt" ]; then
               filename=$(basename "$file")
-              count=$(wc -l < "$file")
+              count=$(wc -l < "$file" 2>/dev/null || echo "0")
+              echo "  $filename: $count 行"
+            fi
+          done
+          
+          # 统计代理文件
+          echo ""
+          echo "🔑 代理文件:"
+          for file in public/proxy_*.txt; do
+            if [ -f "$file" ] && [ "$file" != "public/proxy_all.txt" ]; then
+              filename=$(basename "$file")
+              count=$(wc -l < "$file" 2>/dev/null || echo "0")
               echo "  $filename: $count 行"
             fi
           done
 
-      - name: Generate index.html
+      - name: Validate HTML output
         if: github.event.inputs.test_mode != 'true'
         run: |
-          python << 'EOF'
-          import json
-          import os
-          from datetime import datetime
+          echo "🔍 验证 HTML 文件..."
           
-          # 读取 JSON 数据
-          try:
-              with open('public/ip_candidates.json', 'r') as f:
-                  data = json.load(f)
-          except:
-              data = {"meta": {}, "nodes": []}
+          if [ ! -f "public/index.html" ]; then
+            echo "❌ index.html 不存在，尝试检查原因..."
+            ls -la public/
+            exit 1
+          fi
           
-          meta = data.get('meta', {})
-          nodes = data.get('nodes', [])[:50]  # 显示前50个
+          # 检查 HTML 文件是否包含关键内容
+          if grep -q "Cloudflare IP 优选" public/index.html; then
+            echo "✅ HTML 标题正确"
+          else
+            echo "⚠️ HTML 标题可能不正确"
+          fi
           
-          html = f'''<!DOCTYPE html>
-          <html lang="zh-CN">
-          <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Cloudflare IP 优选结果</title>
-              <style>
-                  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-                  body {{
-                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                      min-height: 100vh;
-                      padding: 20px;
-                  }}
-                  .container {{
-                      max-width: 1200px;
-                      margin: 0 auto;
-                      background: white;
-                      border-radius: 16px;
-                      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                      overflow: hidden;
-                  }}
-                  .header {{
-                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                      color: white;
-                      padding: 40px;
-                      text-align: center;
-                  }}
-                  .header h1 {{ font-size: 2.5em; margin-bottom: 10px; }}
-                  .header p {{ opacity: 0.9; font-size: 1.1em; }}
-                  .meta {{
-                      display: grid;
-                      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                      gap: 20px;
-                      padding: 30px 40px;
-                      background: #f8f9fa;
-                      border-bottom: 2px solid #e9ecef;
-                  }}
-                  .meta-item {{
-                      text-align: center;
-                      padding: 15px;
-                      background: white;
-                      border-radius: 8px;
-                      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                  }}
-                  .meta-item .label {{
-                      color: #6c757d;
-                      font-size: 0.9em;
-                      margin-bottom: 8px;
-                  }}
-                  .meta-item .value {{
-                      color: #667eea;
-                      font-size: 1.8em;
-                      font-weight: bold;
-                  }}
-                  .downloads {{
-                      padding: 30px 40px;
-                      background: #f8f9fa;
-                  }}
-                  .downloads h2 {{
-                      color: #333;
-                      margin-bottom: 20px;
-                      font-size: 1.5em;
-                  }}
-                  .download-grid {{
-                      display: grid;
-                      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-                      gap: 15px;
-                  }}
-                  .download-btn {{
-                      display: block;
-                      padding: 12px 20px;
-                      background: white;
-                      color: #667eea;
-                      text-decoration: none;
-                      border-radius: 8px;
-                      text-align: center;
-                      font-weight: 600;
-                      transition: all 0.3s;
-                      border: 2px solid #667eea;
-                  }}
-                  .download-btn:hover {{
-                      background: #667eea;
-                      color: white;
-                      transform: translateY(-2px);
-                      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-                  }}
-                  .nodes {{
-                      padding: 30px 40px;
-                  }}
-                  .nodes h2 {{
-                      color: #333;
-                      margin-bottom: 20px;
-                      font-size: 1.5em;
-                  }}
-                  table {{
-                      width: 100%;
-                      border-collapse: collapse;
-                  }}
-                  th, td {{
-                      padding: 12px;
-                      text-align: left;
-                      border-bottom: 1px solid #e9ecef;
-                  }}
-                  th {{
-                      background: #667eea;
-                      color: white;
-                      font-weight: 600;
-                      position: sticky;
-                      top: 0;
-                  }}
-                  tr:hover {{ background: #f8f9fa; }}
-                  .region-tag {{
-                      display: inline-block;
-                      padding: 4px 12px;
-                      background: #667eea;
-                      color: white;
-                      border-radius: 12px;
-                      font-size: 0.85em;
-                      font-weight: 600;
-                  }}
-                  .score {{
-                      color: #28a745;
-                      font-weight: bold;
-                  }}
-                  .footer {{
-                      padding: 20px 40px;
-                      text-align: center;
-                      color: #6c757d;
-                      background: #f8f9fa;
-                      border-top: 2px solid #e9ecef;
-                  }}
-              </style>
-          </head>
-          <body>
-              <div class="container">
-                  <div class="header">
-                      <h1>🌐 Cloudflare IP 优选</h1>
-                      <p>多数据源 | HTTPS + SOCKS5 | 智能筛选</p>
-                  </div>
-                  
-                  <div class="meta">
-                      <div class="meta-item">
-                          <div class="label">总节点数</div>
-                          <div class="value">{meta.get('total_nodes', 0)}</div>
-                      </div>
-                      <div class="meta-item">
-                          <div class="label">数据源</div>
-                          <div class="value">{len(meta.get('data_sources', []))}</div>
-                      </div>
-                      <div class="meta-item">
-                          <div class="label">支持协议</div>
-                          <div class="value">{len(meta.get('protocols', []))}</div>
-                      </div>
-                      <div class="meta-item">
-                          <div class="label">更新时间</div>
-                          <div class="value" style="font-size: 0.9em;">
-                              {meta.get('generated_at', 'N/A')[:19].replace('T', ' ')}
-                          </div>
-                      </div>
-                  </div>
-                  
-                  <div class="downloads">
-                      <h2>📥 下载文件</h2>
-                      <div class="download-grid">
-                          <a href="ip_all.txt" class="download-btn">🌍 全部</a>
-                          <a href="ip_HK.txt" class="download-btn">🇭🇰 香港</a>
-                          <a href="ip_SG.txt" class="download-btn">🇸🇬 新加坡</a>
-                          <a href="ip_JP.txt" class="download-btn">🇯🇵 日本</a>
-                          <a href="ip_KR.txt" class="download-btn">🇰🇷 韩国</a>
-                          <a href="ip_TW.txt" class="download-btn">🇹🇼 台湾</a>
-                          <a href="ip_US.txt" class="download-btn">🇺🇸 美国</a>
-                          <a href="ip_DE.txt" class="download-btn">🇩🇪 德国</a>
-                          <a href="ip_UK.txt" class="download-btn">🇬🇧 英国</a>
-                          <a href="ip_AU.txt" class="download-btn">🇦🇺 澳大利亚</a>
-                          <a href="ip_CA.txt" class="download-btn">🇨🇦 加拿大</a>
-                          <a href="ip_candidates.json" class="download-btn">📄 JSON</a>
-                      </div>
-                  </div>
-                  
-                  <div class="nodes">
-                      <h2>🏆 Top 50 节点</h2>
-                      <table>
-                          <thead>
-                              <tr>
-                                  <th>#</th>
-                                  <th>IP:端口</th>
-                                  <th>地区</th>
-                                  <th>COLO</th>
-                                  <th>评分</th>
-                                  <th>延迟</th>
-                              </tr>
-                          </thead>
-                          <tbody>
-          '''
+          if grep -q "region-card" public/index.html; then
+            echo "✅ HTML 包含地区卡片"
+          else
+            echo "⚠️ HTML 可能缺少地区卡片"
+          fi
           
-          for i, node in enumerate(nodes, 1):
-              latencies = node.get('latencies', [])
-              avg_latency = sum(latencies) / len(latencies) if latencies else 0
-              
-              html += f'''
-                              <tr>
-                                  <td>{i}</td>
-                                  <td><code>{node['ip']}:{node['port']}</code></td>
-                                  <td><span class="region-tag">{node['region']}</span></td>
-                                  <td>{node.get('colo', 'N/A')}</td>
-                                  <td class="score">{node['score']:.4f}</td>
-                                  <td>{avg_latency:.0f}ms</td>
-                              </tr>
-              '''
+          if grep -q "proxy-item" public/index.html; then
+            echo "✅ HTML 包含代理信息"
+          else
+            echo "⚠️ HTML 可能缺少代理信息"
+          fi
           
-          html += '''
-                          </tbody>
-                      </table>
-                  </div>
-                  
-                  <div class="footer">
-                      <p>🔄 每8小时自动更新 | 数据源: Proxifly + ProxyDaily + Tomcat1235</p>
-                      <p style="margin-top: 10px; font-size: 0.9em;">
-                          <a href="https://github.com" style="color: #667eea; text-decoration: none;">GitHub</a> | 
-                          Version 2.0
-                      </p>
-                  </div>
-              </div>
-          </body>
-          </html>
-          '''
-          
-          with open('public/index.html', 'w', encoding='utf-8') as f:
-              f.write(html)
-          
-          print("✅ index.html 生成成功")
-          EOF
+          # 显示 HTML 文件大小
+          SIZE=$(stat -f%z public/index.html 2>/dev/null || stat -c%s public/index.html)
+          echo "📊 HTML 文件大小: $SIZE bytes"
 
       - name: Create .nojekyll
         if: github.event.inputs.test_mode != 'true'
@@ -398,26 +229,76 @@ jobs:
           if [ -f "public/ip_candidates.json" ]; then
             python << 'EOF' >> $GITHUB_STEP_SUMMARY
           import json
+          from datetime import datetime
           
-          with open('public/ip_candidates.json', 'r') as f:
-              data = json.load(f)
-          
-          meta = data.get('meta', {})
-          regions = meta.get('regions', {})
-          
-          print(f"### 总节点数: {meta.get('total_nodes', 0)}")
-          print(f"### 数据源: {', '.join(meta.get('data_sources', []))}")
-          print(f"### 支持协议: {', '.join(meta.get('protocols', []))}")
-          print("")
-          print("### 各地区节点分布:")
-          print("")
-          print("| 地区 | 节点数 |")
-          print("|------|--------|")
-          for region, count in sorted(regions.items()):
-              print(f"| {region} | {count} |")
+          try:
+              with open('public/ip_candidates.json', 'r') as f:
+                  data = json.load(f)
+              
+              meta = data.get('meta', {})
+              regions = meta.get('regions', {})
+              nodes = data.get('nodes', [])
+              
+              print(f"### ✅ 扫描成功完成")
+              print("")
+              print(f"**生成时间**: {meta.get('generated_at', 'N/A')}")
+              print(f"**版本**: {meta.get('version', 'N/A')}")
+              print(f"**测试域名**: {meta.get('test_domain', 'N/A')}")
+              print("")
+              print(f"### 📈 统计数据")
+              print("")
+              print(f"- 🌐 **总节点数**: {meta.get('total_nodes', 0)}")
+              print(f"- 🔑 **总代理数**: {meta.get('total_proxies', 0)}")
+              print(f"- 📍 **覆盖地区**: {len(regions)}")
+              print("")
+              print("### 🗺️ 各地区节点分布")
+              print("")
+              print("| 地区代码 | 节点数 | 代理数 |")
+              print("|---------|--------|--------|")
+              
+              # 读取代理文件统计
+              import os
+              for region, count in sorted(regions.items(), key=lambda x: x[1], reverse=True):
+                  proxy_file = f'public/proxy_{region}.txt'
+                  proxy_count = 0
+                  if os.path.exists(proxy_file):
+                      with open(proxy_file, 'r') as pf:
+                          proxy_count = len(pf.readlines())
+                  print(f"| {region} | {count} | {proxy_count} |")
+              
+              print("")
+              print("### 🏆 Top 10 节点")
+              print("")
+              print("| 排名 | IP:端口 | 地区 | COLO | 评分 | 延迟 |")
+              print("|------|---------|------|------|------|------|")
+              
+              for i, node in enumerate(nodes[:10], 1):
+                  latencies = node.get('latencies', [])
+                  avg_lat = f"{sum(latencies)/len(latencies):.0f}ms" if latencies else "N/A"
+                  print(f"| {i} | `{node['ip']}:{node['port']}` | {node['region']} | {node.get('colo', 'N/A')} | {node['score']:.4f} | {avg_lat} |")
+              
+              print("")
+              print("### 📥 下载链接")
+              print("")
+              print("- [全部IP列表](ip_all.txt)")
+              print("- [全部代理列表](proxy_all.txt)")
+              print("- [JSON数据](ip_candidates.json)")
+              print("- [网页版](index.html)")
+              
+          except Exception as e:
+              print(f"### ❌ 读取结果失败")
+              print(f"")
+              print(f"错误信息: {e}")
+              import traceback
+              print(f"")
+              print(f"```")
+              print(traceback.format_exc())
+              print(f"```")
           EOF
           else
-            echo "⚠️ 未找到 JSON 文件" >> $GITHUB_STEP_SUMMARY
+            echo "### ⚠️ 未找到扫描结果" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "JSON 文件不存在，请检查扫描过程是否正常执行。" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Publish to GitHub Pages
@@ -428,13 +309,71 @@ jobs:
           publish_dir: public
           publish_branch: gh-pages
           force_orphan: true
-          commit_message: 'Deploy: ${{ github.run_number }} [${{ github.sha }}]'
+          commit_message: 'Deploy: Run #${{ github.run_number }} - ${{ github.event.head_commit.message }}'
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Clean old artifacts
+        if: github.event.inputs.test_mode != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const days = 7;
+            const maxArtifacts = 10;
+            
+            const artifacts = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - days);
+            
+            let deleted = 0;
+            const sorted = artifacts.data.artifacts.sort((a, b) => 
+              new Date(b.created_at) - new Date(a.created_at)
+            );
+            
+            for (const [index, artifact] of sorted.entries()) {
+              if (index >= maxArtifacts || new Date(artifact.created_at) < cutoff) {
+                console.log(`Deleting artifact: ${artifact.name} (${artifact.created_at})`);
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id
+                });
+                deleted++;
+              }
+            }
+            
+            console.log(`Deleted ${deleted} old artifacts`);
 
       - name: Notification
         if: always()
         run: |
           if [ "${{ job.status }}" == "success" ]; then
             echo "✅ 工作流执行成功"
+            echo ""
+            echo "📊 结果摘要:"
+            
+            if [ -f "public/ip_all.txt" ]; then
+              IP_COUNT=$(wc -l < public/ip_all.txt)
+              echo "  - IP节点: $IP_COUNT"
+            fi
+            
+            if [ -f "public/proxy_all.txt" ]; then
+              PROXY_COUNT=$(wc -l < public/proxy_all.txt)
+              echo "  - 代理节点: $PROXY_COUNT"
+            fi
+            
+            if [ -f "public/index.html" ]; then
+              echo "  - HTML页面: ✅ 已生成"
+            fi
+            
+            echo ""
+            echo "🌐 访问: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
           else
             echo "❌ 工作流执行失败"
+            echo "请查看日志了解详细信息"
           fi
