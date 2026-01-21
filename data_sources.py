@@ -21,8 +21,8 @@ class DataSourceManager:
         proxifly_proxies = self._fetch_proxifly_proxies(region)
         all_proxies.extend(proxifly_proxies)
         
-        # 数据源 2: ProxyDaily
-        proxydaily_proxies = self._fetch_proxydaily_proxies(region, max_pages=2)
+        # 数据源 2: ProxyDaily (直接从API链接获取)
+        proxydaily_proxies = self._fetch_proxydaily_proxies(region)
         all_proxies.extend(proxydaily_proxies)
         
         # 数据源 3: Tomcat1235
@@ -125,84 +125,67 @@ class DataSourceManager:
             return proxies
             
         except Exception as e:
-            self.logger.error(f"  ✗✗ Proxifly: {region} 失败 - {e}")
+            self.logger.error(f"  ✗✗✗✗ Proxifly: {region} 失败 - {e}")
             return []
 
-    def _fetch_proxydaily_proxies(self, region, max_pages=3):
-        """从 ProxyDaily 获取代理列表"""
+    def _fetch_proxydaily_proxies(self, region):
+        """从 ProxyDaily 获取代理列表 - 直接从API链接获取JSON数据"""
         proxies = []
-        session = requests.Session()
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        country_code = REGION_TO_COUNTRY_CODE.get(region, "")
         
         self.logger.info(f"[ProxyDaily] 获取 {region} 的代理...")
         
-        for page in range(1, max_pages + 1):
-            try:
-                params = {
-                    "draw": f"{page}",
-                    "start": f"{(page - 1) * 100}",
-                    "length": "100",
-                    "search[value]": "",
-                    "_": f"{int(time.time() * 1000)}"
-                }
-                
-                resp = session.get(
-                    'https://proxy-daily.com/api/serverside/proxies',
-                    headers=headers,
-                    params=params,
-                    timeout=15
-                )
-                resp.raise_for_status()
-                data_items = resp.json().get('data', [])
-                
-                for item in data_items:
-                    try:
-                        item_country = item.get('country', '').upper()
+        try:
+            # 直接从API链接获取JSON数据
+            response = requests.get('https://proxy-daily.com/api/serverside/proxies', timeout=15)
+            response.raise_for_status()
+            json_data = response.json()
+            
+            country_code = REGION_TO_COUNTRY_CODE.get(region, "")
+            
+            for item in json_data.get("data", []):
+                try:
+                    item_country = item.get('country', '').upper()
+                    
+                    # 地区过滤
+                    if country_code and item_country != country_code:
+                        mapped_region = COUNTRY_TO_REGION.get(item_country)
+                        if mapped_region != region:
+                            continue
+                    
+                    protocols = item.get('protocol', 'http').split(',')
+                    for protocol in protocols:
+                        protocol = protocol.strip().lower()
                         
-                        if country_code and item_country != country_code:
-                            mapped_region = COUNTRY_TO_REGION.get(item_country)
-                            if mapped_region != region:
+                        # 协议过滤和标准化
+                        if protocol not in ['https', 'socks5']:
+                            if protocol in ['http', 'https']:
+                                protocol = 'https'
+                            elif protocol.startswith('socks'):
+                                protocol = 'socks5'
+                            else:
                                 continue
                         
-                        protocols = item.get('protocol', 'http').split(',')
-                        for protocol in protocols:
-                            protocol = protocol.strip().lower()
-                            
-                            if protocol not in ['https', 'socks5']:
-                                if protocol in ['http', 'https']:
-                                    protocol = 'https'
-                                elif protocol.startswith('socks'):
-                                    protocol = 'socks5'
-                                else:
-                                    continue
-                            
-                            proxy = ProxyInfo(
-                                host=item['ip'],
-                                port=int(item['port']),
-                                proxy_type=protocol,
-                                country_code=item_country,
-                                anonymity=item.get('anonymity', '').lower(),
-                                delay=item.get('speed'),
-                                source="proxydaily"
-                            )
-                            proxies.append(proxy)
-                            
-                    except (KeyError, ValueError, TypeError):
-                        continue
-                
-                time.sleep(0.5)
-                
-            except Exception as e:
-                self.logger.debug(f"ProxyDaily 第 {page} 页失败: {e}")
-                continue
-        
-        self.logger.info(f"  ✓ ProxyDaily: {region} 获取 {len(proxies)} 个代理")
-        return proxies
+                        proxy = ProxyInfo(
+                            host=item['ip'],
+                            port=int(item['port']),
+                            proxy_type=protocol,
+                            country_code=item_country,
+                            anonymity=item.get('anonymity', '').lower(),
+                            delay=item.get('speed'),
+                            source="proxydaily"
+                        )
+                        proxies.append(proxy)
+                        
+                except (KeyError, ValueError, TypeError) as e:
+                    self.logger.debug(f"ProxyDaily 数据处理错误: {e}")
+                    continue
+            
+            self.logger.info(f"  ✓ ProxyDaily: {region} 获取 {len(proxies)} 个代理")
+            return proxies
+            
+        except Exception as e:
+            self.logger.error(f"  ✗✗✗✗ ProxyDaily: {region} 失败 - {e}")
+            return []
 
     def _fetch_tomcat1235_proxies(self, region):
         """从 Tomcat1235 获取代理列表"""
