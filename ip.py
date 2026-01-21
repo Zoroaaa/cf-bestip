@@ -299,7 +299,7 @@ def get_proxies(region):
             proxy = future_to_proxy[future]
             try:
                 test_result = future.result()
-                if test_result["success"]:
+                if test_result["success"] and quick_curl_probe(proxy):
                     candidate_proxies.append(proxy)
             except Exception:
                 pass
@@ -323,6 +323,11 @@ def get_proxies(region):
         logging.info(f"  {i}. {p.host}:{p.port} ({p.type.upper()}) - 延迟:{p.tested_latency or 'N/A'}ms [src:{p.source}]")
 
     return best_proxies
+
+def quick_curl_probe(proxy):
+    test_ip = "1.1.1.1"
+    domain = list(TRACE_DOMAINS.values())[0]
+    return curl_test_with_proxy(test_ip, domain, proxy) is not None
 
 
 def save_proxy_list(region_proxies):
