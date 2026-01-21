@@ -31,8 +31,6 @@ def check_runtime_dependencies():
         return False
     return True
 
-if not check_runtime_dependencies():
-    return
 
 # ────────────────────────────────────────────────
 # 日志配置
@@ -442,6 +440,8 @@ def generate_html(all_nodes, region_results, region_proxies):
 
 
 def main():
+    if not check_runtime_dependencies():
+    return
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(DATA_DIR, exist_ok=True)
 
