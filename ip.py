@@ -7,7 +7,6 @@ import os
 import json
 import time
 import logging
-import shutil
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -40,19 +39,7 @@ TRACE_DOMAINS = {
     "v0": "sptest.ittool.pp.ua"
 }
 
-
-# ────────────────────────────────────────────────
-# 运行环境检查
-# ────────────────────────────────────────────────
-def check_runtime_dependencies():
-    if shutil.which("curl") is None:
-        logging.error("❌ 未检测到 curl，可执行文件不存在")
-        logging.error("请确认运行环境已安装 curl")
-        return False
-    return True
-
-
-# ────────────────────────────────────────────────
+ ────────────────────────────────────────────────
 # curl 测试
 # ────────────────────────────────────────────────
 def curl_test_with_proxy(ip, domain, proxy=None):
@@ -247,9 +234,6 @@ def get_proxies(region):
 # 主入口
 # ────────────────────────────────────────────────
 def main():
-    if not check_runtime_dependencies():
-        return
-
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(DATA_DIR, exist_ok=True)
 
