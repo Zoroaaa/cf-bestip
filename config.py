@@ -28,8 +28,8 @@ HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 # ======================
 # 扫描 & 测试参数
 # ======================
-SAMPLE_SIZE_PER_REGION = 60
-TOTAL_SAMPLE = 600                   # 约等于 10个地区 × 60
+SAMPLE_SIZE_PER_REGION = 50
+TOTAL_SAMPLE = 600                   # 约等于 12个地区 × 50
 TIMEOUT = 15
 CONNECT_TIMEOUT = 5
 MAX_WORKERS = 20
@@ -51,17 +51,20 @@ PROXY_CHECK_API_TOKEN = "588wbb"
 # ======================
 # 地区配置
 # ======================
+
 REGION_CONFIG = {
-    "HK": {"codes": ["HK"], "sample": SAMPLE_SIZE_PER_REGION},
-    "SG": {"codes": ["SG"], "sample": SAMPLE_SIZE_PER_REGION},
-    "JP": {"codes": ["JP"], "sample": SAMPLE_SIZE_PER_REGION},
-    "KR": {"codes": ["KR"], "sample": SAMPLE_SIZE_PER_REGION},
-    "TW": {"codes": ["TW"], "sample": SAMPLE_SIZE_PER_REGION},
-    "US": {"codes": ["US"], "sample": SAMPLE_SIZE_PER_REGION},
-    "DE": {"codes": ["DE"], "sample": SAMPLE_SIZE_PER_REGION},
-    "UK": {"codes": ["GB"], "sample": SAMPLE_SIZE_PER_REGION},
-    "AU": {"codes": ["AU"], "sample": SAMPLE_SIZE_PER_REGION},
     "CA": {"codes": ["CA"], "sample": SAMPLE_SIZE_PER_REGION},
+    "CN": {"codes": ["CN"], "sample": SAMPLE_SIZE_PER_REGION},
+    "DE": {"codes": ["DE"], "sample": SAMPLE_SIZE_PER_REGION},
+    "FR": {"codes": ["FR"], "sample": SAMPLE_SIZE_PER_REGION},
+    "GB": {"codes": ["GB"], "sample": SAMPLE_SIZE_PER_REGION},
+    "IN": {"codes": ["IN"], "sample": SAMPLE_SIZE_PER_REGION},
+    "IT": {"codes": ["IT"], "sample": SAMPLE_SIZE_PER_REGION},
+    "JP": {"codes": ["JP"], "sample": SAMPLE_SIZE_PER_REGION},
+    "NL": {"codes": ["NL"], "sample": SAMPLE_SIZE_PER_REGION},
+    "RU": {"codes": ["RU"], "sample": SAMPLE_SIZE_PER_REGION},
+    "US": {"codes": ["US"], "sample": SAMPLE_SIZE_PER_REGION},
+    "SG": {"codes": ["SG"], "sample": SAMPLE_SIZE_PER_REGION},
 }
 
 # COLO → Region 映射
