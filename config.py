@@ -27,18 +27,17 @@ HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 PROXY_CHECK_API_URL = "https://prcheck.ittool.pp.ua/check"
 PROXY_CHECK_API_TOKEN = "588wbb"
 
-# 目标地区配置
+# 目标地区配置 - 去掉AU TW UK，增加IT FR
 REGION_CONFIG = {
     "HK": {"codes": ["HK"], "sample": 60},
     "SG": {"codes": ["SG"], "sample": 60},
     "JP": {"codes": ["JP"], "sample": 60},
     "KR": {"codes": ["KR"], "sample": 60},
-    "TW": {"codes": ["TW"], "sample": 60},
     "US": {"codes": ["US"], "sample": 60},
     "DE": {"codes": ["DE"], "sample": 60},
-    "UK": {"codes": ["GB"], "sample": 60},
-    "AU": {"codes": ["AU"], "sample": 60},
     "CA": {"codes": ["CA"], "sample": 60},
+    "IT": {"codes": ["IT"], "sample": 60},  # 新增
+    "FR": {"codes": ["FR"], "sample": 60},  # 新增
 }
 
 MAX_OUTPUT_PER_REGION = 6
@@ -64,15 +63,18 @@ COLO_MAP = {
     "FRA": "DE", "MUC": "DE", "AMS": "DE",
     "LHR": "UK", "LGW": "UK", "MAN": "UK",
     "YYZ": "CA", "YVR": "CA",
+    "FCO": "IT", "LIN": "IT", "MXP": "IT",  # 新增意大利colo
+    "CDG": "FR", "ORY": "FR",  # 新增法国colo
 }
 
-# 国家代码到地区的映射
+# 国家代码到地区的映射 - 更新映射
 COUNTRY_TO_REGION = {
     "HK": "HK", "SG": "SG", "JP": "JP", "KR": "KR", "TW": "TW",
     "US": "US", "DE": "DE", "GB": "UK", "AU": "AU", "CA": "CA",
-    "FR": "DE", "NL": "DE", "IT": "DE", "ES": "DE",
+    "IT": "IT", "FR": "FR",  # 新增
+    "NL": "DE", "ES": "DE", "CH": "DE", "BE": "DE", "AT": "DE",
     "BR": "US", "MX": "US", "AR": "US",
-    "IN": "SG", "TH": "SG", "ID": "SG", "MY": "SG",
+    "IN": "SG", "TH": "SG", "ID": "SG", "MY": "SG", "PH": "SG",
 }
 
 # =========================
@@ -84,4 +86,20 @@ PROXIFLY_JSON_URL = "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/p
 REGION_TO_COUNTRY_CODE = {
     "HK": "HK", "SG": "SG", "JP": "JP", "KR": "KR", "TW": "TW",
     "US": "US", "DE": "DE", "UK": "GB", "AU": "AU", "CA": "CA",
+    "IT": "IT", "FR": "FR",  # 新增
+}
+
+# 数据源地区映射配置
+DATA_SOURCE_REGION_MAPPING = {
+    "proxifly": {
+        "HK": "HK", "SG": "SG", "JP": "JP", "KR": "KR", "TW": "TW",
+        "US": "US", "DE": "DE", "CA": "CA", "IT": "IT", "FR": "FR"
+    },
+    "proxydaily": {
+        "IT": "IT", "FR": "FR",  # proxydaily只测试IT和FR
+        "US": "US"  # 保留US作为默认
+    },
+    "tomcat1235": {
+        "US": "US"  # tomcat1235固定测试US
+    }
 }
