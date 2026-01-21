@@ -18,6 +18,17 @@ from proxy_sources import (
 )
 
 
+# tests.py 中，import 下面添加：
+
+def fetch_cf_ipv4_cidrs():
+    try:
+        r = requests.get(CF_IPS_V4_URL, timeout=10)
+        r.raise_for_status()
+        return [line.strip() for line in r.text.splitlines() if line.strip() and not line.strip().startswith('#')]
+    except Exception as e:
+        logging.error(f"[自检] 获取 CF IP 段失败: {e}")
+        return []
+
 def check_proxy_with_api(proxy_info):
     """使用API检测代理的可用性和信息"""
     if not PROXY_CHECK_API_URL:
