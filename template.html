@@ -1,4 +1,3 @@
-<!-- 新文件: template.html (独立出来的HTML模板) -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -64,11 +63,6 @@
             font-weight: bold;
             color: #333;
         }
-        .stat-card .update-time {
-            margin-top: 8px;
-            font-size: 0.75em;
-            color: #718096;
-        }
         .download-section {
             background: white;
             padding: 25px;
@@ -103,6 +97,7 @@
             transition: all 0.3s;
             font-weight: 500;
             text-align: center;
+            color: white;
         }
         .download-btn:hover {
             transform: translateY(-2px);
@@ -110,21 +105,18 @@
         }
         .btn-primary {
             background: #667eea;
-            color: white;
         }
         .btn-primary:hover {
             background: #5568d3;
         }
         .btn-success {
             background: #48bb78;
-            color: white;
         }
         .btn-success:hover {
             background: #38a169;
         }
         .btn-info {
             background: #4299e1;
-            color: white;
         }
         .btn-info:hover {
             background: #3182ce;
@@ -173,13 +165,20 @@
         .region-body {
             padding: 20px;
         }
+        .section-title {
+            font-size: 1em;
+            margin-bottom: 12px;
+            margin-top: 20px;
+            color: #333;
+            font-weight: 600;
+            border-left: 4px solid #667eea;
+            padding-left: 10px;
+        }
+        .section-title:first-child {
+            margin-top: 0;
+        }
         .ip-list, .proxy-list {
             margin-bottom: 15px;
-        }
-        .proxy-list h4 {
-            font-size: 1em;
-            margin-bottom: 10px;
-            color: #333;
         }
         .ip-item, .proxy-item {
             padding: 12px;
@@ -188,6 +187,9 @@
             border-radius: 8px;
             border-left: 4px solid #667eea;
             transition: background 0.2s;
+        }
+        .proxy-item {
+            border-left-color: #48bb78;
         }
         .ip-item:hover, .proxy-item:hover {
             background: #edf2f7;
@@ -228,6 +230,14 @@
             background: #ed8936;
             color: white;
         }
+        .badge-type {
+            background: #9f7aea;
+            color: white;
+        }
+        .badge-source {
+            background: #718096;
+            color: white;
+        }
         .region-downloads {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -247,6 +257,7 @@
             gap: 6px;
             transition: all 0.3s;
             font-weight: 500;
+            color: white;
         }
         .region-download-btn:hover {
             transform: translateY(-1px);
@@ -295,40 +306,41 @@
                 <div class="value">{{TOTAL_NODES}}</div>
             </div>
             <div class="stat-card">
-                <h3>数据源</h3>
+                <h3>覆盖地区</h3>
                 <div class="value">{{TOTAL_REGIONS}}</div>
             </div>
             <div class="stat-card">
-                <h3>支持协议</h3>
+                <h3>代理总数</h3>
                 <div class="value">{{TOTAL_PROXIES}}</div>
             </div>
         </div>
 
         <div class="download-section">
-            <h2>📦 下载文件</h2>
+            <h2>📦 全局下载</h2>
             <div class="download-grid">
                 <a href="ip_all.txt" class="download-btn btn-primary" download>
-                    🌍 全部
-                </a>
-                <a href="ip_candidates.json" class="download-btn btn-info" download>
-                    📄 JSON
+                    🌍 所有IP列表
                 </a>
                 <a href="proxy_all.txt" class="download-btn btn-success" download>
-                    🔑 代理列表
+                    🔑 所有代理列表
+                </a>
+                <a href="ip_candidates.json" class="download-btn btn-info" download>
+                    📄 JSON数据
                 </a>
             </div>
         </div>
 
         <div class="region-section">
-            <h2>🗺️ Top 50 节点</h2>
+            <h2>🗺️ 地区详情</h2>
             <div class="region-grid">
                 {{REGION_CARDS}}
             </div>
         </div>
 
         <div class="footer">
-            <p><strong>Powered by Cloudflare IP Scanner V2.0 API Edition</strong></p>
+            <p><strong>Powered by Cloudflare IP Scanner V2.1</strong></p>
             <p>🚀 多数据源聚合 | 智能API检测 | 自动化测试</p>
+            <p>支持地区: 美国 🇺🇸 | 加拿大 🇨🇦 | 香港 🇭🇰 | 新加坡 🇸🇬 | 日本 🇯🇵 | 英国 🇬🇧 | 德国 🇩🇪 | 法国 🇫🇷 | 荷兰 🇳🇱 | 意大利 🇮🇹 | 俄罗斯 🇷🇺 | 印度 🇮🇳</p>
         </div>
     </div>
 </body>
