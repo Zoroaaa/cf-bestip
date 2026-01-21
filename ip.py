@@ -31,6 +31,9 @@ def check_runtime_dependencies():
         return False
     return True
 
+if not check_runtime_dependencies():
+    return
+
 # ────────────────────────────────────────────────
 # 日志配置
 # ────────────────────────────────────────────────
