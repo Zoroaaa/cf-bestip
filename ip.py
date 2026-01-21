@@ -213,14 +213,6 @@ def aggregate_nodes(raw):
 
 
 # ────────────────────────────────────────────────
-# 快速代理真实性验证
-# ────────────────────────────────────────────────
-def quick_proxy_probe(proxy):
-    domain = list(TRACE_DOMAINS.values())[0]
-    return curl_test_with_proxy("1.1.1.1", domain, proxy) is not None
-
-
-# ────────────────────────────────────────────────
 # 获取并筛选代理
 # ────────────────────────────────────────────────
 def get_proxies(region):
@@ -242,7 +234,7 @@ def get_proxies(region):
             proxy = future_map[future]
             try:
                 r = future.result()
-                if r["success"] and quick_proxy_probe(proxy):
+                if r["success"]:
                     candidates.append(proxy)
             except Exception:
                 pass
