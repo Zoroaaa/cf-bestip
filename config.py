@@ -5,6 +5,8 @@
 
 import os
 from datetime import datetime
+import requests
+import logging
 
 # ======================
 # 路径相关
@@ -128,3 +130,17 @@ LOG_LEVEL = "INFO"
 
 def get_generated_time():
     return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+
+def fetch_cf_ipv4_cidrs():
+    """统一获取 Cloudflare IPv4 CIDR"""
+    try:
+        r = requests.get(CF_IPS_V4_URL, timeout=10)
+        r.raise_for_status()
+        return [
+            line.strip()
+            for line in r.text.splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+    except Exception as e:
+        logging.error(f"获取 Cloudflare IP 段失败: {e}")
+        return []
