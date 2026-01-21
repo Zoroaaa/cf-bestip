@@ -345,17 +345,23 @@ def load_html_template():
 
 
 def generate_html(all_nodes, region_results, region_proxies):
+    """生成HTML页面 - 优化版"""
     template = load_html_template()
     if not template:
         return
 
     region_cards_html = []
 
+    # 按地区生成卡片
     for region in sorted(region_results.keys()):
         nodes = region_results[region]
         if not nodes:
             continue
 
+        # 获取地区中文名
+        region_name = REGION_CONFIG.get(region, {}).get("name", region)
+
+        # IP列表HTML
         ip_items_html = []
         for node in nodes[:MAX_OUTPUT_PER_REGION]:
             min_latency = min(node['latencies']) if node['latencies'] else "N/A"
@@ -370,49 +376,56 @@ def generate_html(all_nodes, region_results, region_proxies):
             </div>"""
             ip_items_html.append(ip_html)
 
+        # 代理列表HTML
         proxy_items_html = []
         proxies = region_proxies.get(region, [])
         for proxy in proxies:
             proxy_html = f"""
-            <div class="ip-item proxy-item">
+            <div class="proxy-item">
                 <div class="ip-address">{proxy.host}:{proxy.port}</div>
                 <div class="ip-meta">
-                    <span class="badge badge-latency">延迟 {proxy.tested_latency or 'N/A'}ms</span>
-                    <span class="badge badge-colo">{proxy.type.upper()}</span>
-                    <span class="badge badge-score">来源 {proxy.source}</span>
+                    <span class="badge badge-type">{proxy.type.upper()}</span>
+                    <span class="badge badge-latency">{proxy.tested_latency or 'N/A'}ms</span>
+                    <span class="badge badge-source">{proxy.source}</span>
+                    <span class="badge badge-colo">{proxy.country_code}</span>
                 </div>
             </div>"""
             proxy_items_html.append(proxy_html)
 
+        # 组装代理部分
         proxy_section = ""
         if proxy_items_html:
             proxy_section = f"""
+            <div class="section-title">🔑 推荐代理 ({len(proxies)})</div>
             <div class="proxy-list">
-                <h4>推荐代理 ({len(proxies)})</h4>
                 {''.join(proxy_items_html)}
             </div>"""
 
+        # 生成地区卡片
         card_html = f"""
         <div class="region-card">
             <div class="region-header">
-                <span>{region}</span>
-                <span class="region-count">{len(nodes)} 个节点</span>
+                <span>{region_name} ({region})</span>
+                <span class="region-count">{len(nodes)} 节点</span>
             </div>
             <div class="region-body">
+                <div class="section-title">📡 优选IP ({len(nodes[:MAX_OUTPUT_PER_REGION])})</div>
                 <div class="ip-list">
                     {''.join(ip_items_html)}
                 </div>
                 {proxy_section}
                 <div class="region-downloads">
-                    <a href="ip_{region}.txt" class="region-download-btn btn-primary" download>📥 IP列表</a>
-                    <a href="proxy_{region}.txt" class="region-download-btn btn-success" download>🔑 代理列表</a>
+                    <a href="ip_{region}.txt" class="region-download-btn btn-primary" download>📥 下载IP</a>
+                    <a href="proxy_{region}.txt" class="region-download-btn btn-success" download>🔑 下载代理</a>
                 </div>
             </div>
         </div>"""
         region_cards_html.append(card_html)
 
+    # 统计总代理数
     total_proxies = sum(len(proxies) for proxies in region_proxies.values())
 
+    # 替换模板变量
     html_content = template
     html_content = html_content.replace('{{GENERATED_TIME}}', get_generated_time())
     html_content = html_content.replace('{{TOTAL_NODES}}', str(len(all_nodes)))
@@ -420,10 +433,14 @@ def generate_html(all_nodes, region_results, region_proxies):
     html_content = html_content.replace('{{TOTAL_PROXIES}}', str(total_proxies))
     html_content = html_content.replace('{{REGION_CARDS}}', '\n'.join(region_cards_html))
 
+    # 写入文件
     with open(f"{OUTPUT_DIR}/index.html", "w", encoding="utf-8") as f:
         f.write(html_content)
 
     logging.info(f"✓ 已生成网页: {OUTPUT_DIR}/index.html")
+    logging.info(f"  - 包含 {len(region_results)} 个地区")
+    logging.info(f"  - 共 {len(all_nodes)} 个IP节点")
+    logging.info(f"  - 共 {total_proxies} 个代理节点")
 
 
 def main():
