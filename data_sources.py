@@ -1,12 +1,11 @@
-# data_sources.py
 import requests
 import ipaddress
 import time
 import logging
+import random
 from bs4 import BeautifulSoup
 from models import ProxyInfo
 from config import PROXIFLY_BASE_URL, PROXIFLY_JSON_URL, REGION_TO_COUNTRY_CODE, COUNTRY_TO_REGION
-from config import DATA_SOURCE_REGION_MAPPING  # 新增导入
 
 class DataSourceManager:
     """数据源管理器"""
@@ -18,20 +17,17 @@ class DataSourceManager:
         """从所有数据源获取代理"""
         all_proxies = []
         
-        # 数据源 1: Proxifly - 根据映射决定是否获取
-        if region in DATA_SOURCE_REGION_MAPPING["proxifly"]:
-            proxifly_proxies = self._fetch_proxifly_proxies(region)
-            all_proxies.extend(proxifly_proxies)
+        # 数据源 1: Proxifly
+        proxifly_proxies = self._fetch_proxifly_proxies(region)
+        all_proxies.extend(proxifly_proxies)
         
-        # 数据源 2: ProxyDaily - 根据映射决定是否获取
-        if region in DATA_SOURCE_REGION_MAPPING["proxydaily"]:
-            proxydaily_proxies = self._fetch_proxydaily_proxies(region)
-            all_proxies.extend(proxydaily_proxies)
+        # 数据源 2: ProxyDaily (修复版)
+        proxydaily_proxies = self._fetch_proxydaily_proxies(region, max_pages=2)
+        all_proxies.extend(proxydaily_proxies)
         
-        # 数据源 3: Tomcat1235 - 根据映射决定是否获取
-        if region in DATA_SOURCE_REGION_MAPPING["tomcat1235"]:
-            tomcat_proxies = self._fetch_tomcat1235_proxies(region)
-            all_proxies.extend(tomcat_proxies)
+        # 数据源 3: Tomcat1235
+        tomcat_proxies = self._fetch_tomcat1235_proxies(region)
+        all_proxies.extend(tomcat_proxies)
         
         self.logger.info(f"{region} 共收集 {len(all_proxies)} 个代理")
         return all_proxies
@@ -129,41 +125,82 @@ class DataSourceManager:
             return proxies
             
         except Exception as e:
-            self.logger.error(f"  ✗✗✗✗✗✗✗✗ Proxifly: {region} 失败 - {e}")
+            self.logger.error(f"  ✗ Proxifly: {region} 失败 - {e}")
             return []
 
-    def _fetch_proxydaily_proxies(self, region):
-        """从 ProxyDaily 获取代理列表 - 固定测试IT和FR"""
+    def _fetch_proxydaily_proxies(self, region, max_pages=3):
+        """从 ProxyDaily 获取代理列表 - 修复版"""
         proxies = []
+        session = requests.Session()
+        
+        # 使用 proxydaily.py 中的请求头
+        headers = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Cache-Control": "max-age=0",
+            "Priority": "u=0, i",
+            "sec-ch-ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+        }
+        
+        country_code = REGION_TO_COUNTRY_CODE.get(region, "")
         
         self.logger.info(f"[ProxyDaily] 获取 {region} 的代理...")
         
-        try:
-            # 直接从API链接获取JSON数据
-            response = requests.get('https://proxy-daily.com/api/serverside/proxies', timeout=15)
-            response.raise_for_status()
-            json_data = response.json()
-            
-            country_code = REGION_TO_COUNTRY_CODE.get(region, "")
-            
-            for item in json_data.get("data", []):
-                try:
-                    item_country = item.get('country', '').upper()
-                    
-                    # 地区过滤 - 只获取IT和FR的代理
-                    if region in ["IT", "FR"]:
-                        if item_country != country_code:
+        for page in range(1, max_pages + 1):
+            try:
+                # 使用 proxydaily.py 中的参数格式
+                params = {
+                    "draw": f"{page}",
+                    "columns[0][data]": "ip", "columns[0][name]": "ip", "columns[0][searchable]": "true", "columns[0][orderable]": "false",
+                    "columns[0][search][value]": "", "columns[0][search][regex]": "false",
+                    "columns[1][data]": "port", "columns[1][name]": "port", "columns[1][searchable]": "true", "columns[1][orderable]": "false",
+                    "columns[1][search][value]": "", "columns[1][search][regex]": "false",
+                    "columns[2][data]": "protocol", "columns[2][name]": "protocol", "columns[2][searchable]": "true", "columns[2][orderable]": "false",
+                    "columns[2][search][value]": "", "columns[2][search][regex]": "false",
+                    "columns[3][data]": "speed", "columns[3][name]": "speed", "columns[3][searchable]": "true", "columns[3][orderable]": "false",
+                    "columns[3][search][value]": "", "columns[3][search][regex]": "false",
+                    "columns[4][data]": "anonymity", "columns[4][name]": "anonymity", "columns[4][searchable]": "true", "columns[4][orderable]": "false",
+                    "columns[4][search][value]": "", "columns[4][search][regex]": "false",
+                    "columns[5][data]": "country", "columns[5][name]": "country", "columns[5][searchable]": "true", "columns[5][orderable]": "false",
+                    "columns[5][search][value]": "", "columns[5][search][regex]": "false",
+                    "start": f"{(page - 1) * 100}",
+                    "length": "100",
+                    "search[value]": "",
+                    "search[regex]": "false",
+                    "_": f"{int(time.time() * 1000)}"
+                }
+                
+                resp = session.get(
+                    'https://proxy-daily.com/api/serverside/proxies',
+                    headers=headers,
+                    params=params,
+                    timeout=15
+                )
+                resp.raise_for_status()
+                data_items = resp.json().get('data', [])
+                
+                for item in data_items:
+                    try:
+                        item_country = item.get('country', '').upper()
+                        
+                        # 地区过滤
+                        if country_code and item_country != country_code:
                             mapped_region = COUNTRY_TO_REGION.get(item_country)
                             if mapped_region != region:
                                 continue
-                    else:
-                        # 对于非IT/FR地区，只获取US代理作为备用
-                        if item_country != "US":
-                            continue
-                    
-                    protocols = item.get('protocol', 'http').split(',')
-                    for protocol in protocols:
-                        protocol = protocol.strip().lower()
+                        
+                        # 使用 proxydaily.py 中的协议选择逻辑
+                        protocols = item.get('protocol', 'http').split(',')
+                        protocol = random.choice(protocols).strip().lower()
                         
                         # 协议过滤和标准化
                         if protocol not in ['https', 'socks5']:
@@ -185,19 +222,22 @@ class DataSourceManager:
                         )
                         proxies.append(proxy)
                         
-                except (KeyError, ValueError, TypeError) as e:
-                    self.logger.debug(f"ProxyDaily 数据处理错误: {e}")
-                    continue
-            
-            self.logger.info(f"  ✓ ProxyDaily: {region} 获取 {len(proxies)} 个代理")
-            return proxies
-            
-        except Exception as e:
-            self.logger.error(f"  ✗✗✗✗✗✗✗✗ ProxyDaily: {region} 失败 - {e}")
-            return []
+                    except (KeyError, ValueError, TypeError) as e:
+                        self.logger.debug(f"ProxyDaily 数据处理错误: {e}")
+                        continue
+                
+                self.logger.info(f"  ProxyDaily 第 {page} 页: 获取 {len(data_items)} 条数据")
+                time.sleep(0.5)  # 避免请求过快
+                
+            except Exception as e:
+                self.logger.debug(f"ProxyDaily 第 {page} 页失败: {e}")
+                continue
+        
+        self.logger.info(f"  ✓ ProxyDaily: {region} 获取 {len(proxies)} 个代理")
+        return proxies
 
     def _fetch_tomcat1235_proxies(self, region):
-        """从 Tomcat1235 获取代理列表 - 固定测试US"""
+        """从 Tomcat1235 获取代理列表"""
         proxies = []
         session = requests.Session()
         
@@ -240,12 +280,11 @@ class DataSourceManager:
                         else:
                             continue
                     
-                    # 固定返回US代理
                     proxy = ProxyInfo(
                         host=host,
                         port=port,
                         proxy_type=protocol,
-                        country_code="US",
+                        country_code="UNKNOWN",
                         source="tomcat1235"
                     )
                     proxies.append(proxy)
