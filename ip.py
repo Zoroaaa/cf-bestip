@@ -22,6 +22,14 @@ from proxy_sources import (
 )
 from tests import check_proxy_with_api, run_internal_tests
 
+import shutil
+
+def check_runtime_dependencies():
+    if shutil.which("curl") is None:
+        logging.error("❌ 未检测到 curl，可执行文件不存在")
+        logging.error("请确认运行环境已安装 curl")
+        return False
+    return True
 
 # ────────────────────────────────────────────────
 # 日志配置
