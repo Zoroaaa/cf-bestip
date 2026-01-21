@@ -18,9 +18,9 @@ class HTMLGenerator:
         
         print(f"✓ 生成HTML页面: {self.output_dir}/index.html")
     
-    def _load_html_template(self):
-        """加载HTML模板"""
-        return """<!DOCTYPE html>
+ def _load_html_template(self):
+    """加载HTML模板"""
+    return """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -150,6 +150,13 @@ class HTMLGenerator:
         .btn-info:hover {
             background: #3182ce;
         }
+        .btn-warning {
+            background: #ed8936;
+            color: white;
+        }
+        .btn-warning:hover {
+            background: #dd7724;
+        }
         .region-section {
             margin-bottom: 30px;
         }
@@ -268,6 +275,90 @@ class HTMLGenerator:
             transform: translateY(-1px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.15);
         }
+        .proxy-section {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .proxy-section h2 {
+            color: #333;
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .proxy-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+        }
+        .proxy-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 4px solid #48bb78;
+        }
+        .proxy-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .proxy-region {
+            font-weight: bold;
+            color: #2d3748;
+        }
+        .proxy-count {
+            font-size: 0.8em;
+            color: #718096;
+        }
+        .proxy-list {
+            max-height: 120px;
+            overflow-y: auto;
+        }
+        .proxy-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            background: white;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .proxy-item:last-child {
+            margin-bottom: 0;
+        }
+        .proxy-address {
+            color: #2d3748;
+        }
+        .proxy-meta {
+            font-size: 0.75em;
+            color: #718096;
+            display: flex;
+            gap: 5px;
+        }
+        .proxy-downloads {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        .proxy-download-btn {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.8em;
+            cursor: pointer;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.3s;
+        }
         .footer {
             text-align: center;
             color: white;
@@ -294,13 +385,16 @@ class HTMLGenerator:
             .region-downloads {
                 grid-template-columns: 1fr;
             }
+            .proxy-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🌐🌐 Cloudflare IP 优选</h1>
+            <h1>🌐 Cloudflare IP 优选</h1>
             <div class="subtitle">多数据源 | HTTPS + SOCKS5 | API智能检测</div>
             <div class="meta">更新时间: {{GENERATED_TIME}}</div>
         </div>
@@ -315,28 +409,36 @@ class HTMLGenerator:
                 <div class="value">{{TOTAL_REGIONS}}</div>
             </div>
             <div class="stat-card">
-                <h3>支持协议</h3>
+                <h3>可用代理</h3>
                 <div class="value">{{TOTAL_PROXIES}}</div>
             </div>
         </div>
 
         <div class="download-section">
-            <h2>📦📦 下载文件</h2>
+            <h2>📦 下载文件</h2>
             <div class="download-grid">
                 <a href="ip_all.txt" class="download-btn btn-primary" download>
-                    🌍🌍 全部
-                </a>
-                <a href="ip_candidates.json" class="download-btn btn-info" download>
-                    📄📄 JSON
+                    🌍 全部IP列表
                 </a>
                 <a href="proxy_all.txt" class="download-btn btn-success" download>
-                    🔑🔑 代理列表
+                    🔑 全部代理列表
+                </a>
+                <a href="ip_candidates.json" class="download-btn btn-info" download>
+                    📄 JSON数据
                 </a>
             </div>
         </div>
 
+        <!-- 新增代理信息展示区域 -->
+        <div class="proxy-section">
+            <h2>🔑 可用代理列表</h2>
+            <div class="proxy-grid">
+                {{PROXY_CARDS}}
+            </div>
+        </div>
+
         <div class="region-section">
-            <h2>🗺🗺️ Top 50 节点</h2>
+            <h2>🗺️ Top 50 节点</h2>
             <div class="region-grid">
                 {{REGION_CARDS}}
             </div>
@@ -344,68 +446,107 @@ class HTMLGenerator:
 
         <div class="footer">
             <p><strong>Powered by Cloudflare IP Scanner V2.0 API Edition</strong></p>
-            <p>🚀🚀 多数据源聚合 | 智能API检测 | 自动化测试</p>
+            <p>🚀 多数据源聚合 | 智能API检测 | 自动化测试</p>
         </div>
     </div>
 </body>
 </html>"""
     
-    def _render_template(self, template, all_nodes, region_results, region_proxies):
-        """渲染模板"""
-        # 生成地区卡片
-        region_cards_html = []
+ def _render_template(self, template, all_nodes, region_results, region_proxies):
+    """渲染模板"""
+    # 生成地区卡片
+    region_cards_html = []
+    
+    for region in sorted(region_results.keys()):
+        nodes = region_results[region]
+        if not nodes:
+            continue
         
-        for region in sorted(region_results.keys()):
-            nodes = region_results[region]
-            if not nodes:
-                continue
-            
-            # 每个地区的IP列表
-            ip_items_html = []
-            for node in nodes[:MAX_OUTPUT_PER_REGION]:
-                min_latency = min(node['latencies'])
-                ip_html = f"""
-                <div class="ip-item">
-                    <div class="ip-address">{node['ip']}:{node['port']}</div>
-                    <div class="ip-meta">
-                        <span class="badge badge-score">分数 {node['score']}</span>
-                        <span class="badge badge-latency">延迟 {min_latency}ms</span>
-                        <span class="badge badge-colo">COLO {node['colo']}</span>
-                    </div>
-                </div>"""
-                ip_items_html.append(ip_html)
-            
-            # 地区卡片
-            card_html = f"""
-            <div class="region-card">
-                <div class="region-header">
-                    <span>{region}</span>
-                    <span class="region-count">{len(nodes)} 节点</span>
-                </div>
-                <div class="region-body">
-                    <div class="ip-list">
-                        {''.join(ip_items_html)}
-                    </div>
-                    <div class="region-downloads">
-                        <a href="ip_{region}.txt" class="region-download-btn btn-primary" download>
-                            📥📥 IP列表
-                        </a>
-                        <a href="proxy_{region}.txt" class="region-download-btn btn-success" download>
-                            🔑🔑 代理列表
-                        </a>
-                    </div>
+        # 每个地区的IP列表
+        ip_items_html = []
+        for node in nodes[:MAX_OUTPUT_PER_REGION]:
+            min_latency = min(node['latencies'])
+            ip_html = f"""
+            <div class="ip-item">
+                <div class="ip-address">{node['ip']}:{node['port']}</div>
+                <div class="ip-meta">
+                    <span class="badge badge-score">分数 {node['score']}</span>
+                    <span class="badge badge-latency">延迟 {min_latency}ms</span>
+                    <span class="badge badge-colo">COLO {node['colo']}</span>
                 </div>
             </div>"""
-            region_cards_html.append(card_html)
+            ip_items_html.append(ip_html)
         
-        # 统计信息
-        total_proxies = sum(len(proxies) for proxies in region_proxies.values())
+        # 地区卡片
+        card_html = f"""
+        <div class="region-card">
+            <div class="region-header">
+                <span>{region}</span>
+                <span class="region-count">{len(nodes)} 节点</span>
+            </div>
+            <div class="region-body">
+                <div class="ip-list">
+                    {''.join(ip_items_html)}
+                </div>
+                <div class="region-downloads">
+                    <a href="ip_{region}.txt" class="region-download-btn btn-primary" download>
+                        📥 IP列表
+                    </a>
+                    <a href="proxy_{region}.txt" class="region-download-btn btn-success" download>
+                        🔑 代理列表
+                    </a>
+                </div>
+            </div>
+        </div>"""
+        region_cards_html.append(card_html)
+    
+    # 生成代理卡片
+    proxy_cards_html = []
+    for region in sorted(region_proxies.keys()):
+        proxies = region_proxies[region]
+        if not proxies:
+            continue
         
-        # 替换模板变量
-        html_content = template.replace('{{GENERATED_TIME}}', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC'))
-        html_content = html_content.replace('{{TOTAL_NODES}}', str(len(all_nodes)))
-        html_content = html_content.replace('{{TOTAL_REGIONS}}', str(len(region_results)))
-        html_content = html_content.replace('{{TOTAL_PROXIES}}', str(total_proxies))
-        html_content = html_content.replace('{{REGION_CARDS}}', '\n'.join(region_cards_html))
+        # 代理列表
+        proxy_items_html = []
+        for proxy in proxies[:5]:  # 显示前5个代理
+            proxy_html = f"""
+            <div class="proxy-item">
+                <div class="proxy-address">{proxy.host}:{proxy.port}</div>
+                <div class="proxy-meta">
+                    <span>{proxy.type.upper()}</span>
+                    <span>{proxy.tested_latency}ms</span>
+                </div>
+            </div>"""
+            proxy_items_html.append(proxy_html)
         
-        return html_content
+        # 代理卡片
+        proxy_card_html = f"""
+        <div class="proxy-card">
+            <div class="proxy-card-header">
+                <span class="proxy-region">{region}</span>
+                <span class="proxy-count">{len(proxies)} 代理</span>
+            </div>
+            <div class="proxy-list">
+                {''.join(proxy_items_html)}
+            </div>
+            <div class="proxy-downloads">
+                <a href="proxy_{region}.txt" class="proxy-download-btn btn-success" download>
+                    📥 下载代理
+                </a>
+            </div>
+        </div>"""
+        proxy_cards_html.append(proxy_card_html)
+    
+    # 统计信息
+    total_proxies = sum(len(proxies) for proxies in region_proxies.values())
+    
+    # 替换模板变量
+    html_content = template.replace('{{GENERATED_TIME}}', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC'))
+    html_content = html_content.replace('{{TOTAL_NODES}}', str(len(all_nodes)))
+    html_content = html_content.replace('{{TOTAL_REGIONS}}', str(len(region_results)))
+    html_content = html_content.replace('{{TOTAL_PROXIES}}', str(total_proxies))
+    html_content = html_content.replace('{{REGION_CARDS}}', '\n'.join(region_cards_html))
+    html_content = html_content.replace('{{PROXY_CARDS}}', '\n'.join(proxy_cards_html) if proxy_cards_html else '<p>暂无可用代理</p>')
+    
+    return html_content
