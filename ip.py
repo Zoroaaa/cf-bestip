@@ -10,6 +10,7 @@ import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from config import fetch_cf_ipv4_cidrs
 
 from config import *
 from proxy_sources import (
@@ -125,16 +126,6 @@ def test_ip_with_proxy(ip, proxy=None):
             r["view"] = view
             records.append(r)
     return records
-
-
-def fetch_cf_ipv4_cidrs():
-    try:
-        r = requests.get(CF_IPS_V4_URL, timeout=10)
-        r.raise_for_status()
-        return [x.strip() for x in r.text.splitlines() if x.strip()]
-    except Exception as e:
-        logging.error(f"获取 Cloudflare IP 段失败: {e}")
-        return []
 
 
 def weighted_random_ips(cidrs, total):
