@@ -290,7 +290,6 @@ def fetch_webshare_proxies(region, token=None):
             "mode": "direct",
             "page": 1,
             "page_size": 10,
-            # 移除 country_code__in 参数，免费版可能不支持
         }
         
         resp = requests.get(url, headers=headers, params=params, timeout=15)
@@ -304,38 +303,49 @@ def fetch_webshare_proxies(region, token=None):
         for item in results:
             try:
                 host = item["proxy_address"]
-                port = int(item["ports"].get("https") or item["ports"].get("http"))
+                
+                # 处理端口字段 - 优先使用 https 端口，如果没有则使用 http 端口
+                ports = item.get("ports", {})
+                port = ports.get("https") or ports.get("http")
+                if port is None:
+                    continue  # 如果没有端口信息则跳过
+                port = int(port)
+                
                 country_code = item.get("country_code", "UNKNOWN").upper()
                 
                 # 在客户端进行地区过滤
                 if target_region and country_code != target_region:
                     continue
                 
+                # 处理代理类型
                 proxy_type_raw = item.get("proxy_type", "").lower()
-                
                 if proxy_type_raw == "socks5":
                     proxy_type = "socks5"
                 elif proxy_type_raw in ["http", "https"]:
                     proxy_type = "https"
                 else:
-                    continue
+                    continue  # 不支持的代理类型
+                
+                # 推断匿名性
+                anonymity = "elite" if item.get("high_country_confidence", False) else "anonymous"
                 
                 proxy = ProxyInfo(
                     host=host,
                     port=port,
                     proxy_type=proxy_type,
                     country_code=country_code,
-                    anonymity="elite" if item.get("anonymous", False) else "transparent",
+                    anonymity=anonymity,
                     source="webshare"
                 )
                 proxies.append(proxy)
+                
             except (KeyError, ValueError, TypeError) as e:
-                logging.debug(f"Webshare 解析错误: {e}")
+                logging.debug(f"Webshare 解析错误: {e}, 项目: {item}")
                 continue
         
         logging.info(f"  ✓ Webshare: 获取 {len(results)} 个代理，筛选出 {len(proxies)} 个 {region} 代理")
         return proxies
         
     except Exception as e:
-        logging.error(f"  ✗ Webshare 获取失败: {e}")
+        logging.error(f"  ✗✗ Webshare 获取失败: {e}")
         return []
