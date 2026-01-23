@@ -251,6 +251,45 @@ def scan_region(region, ips, proxies):
     return raw_results
 
 
+def calculate_test_count(available_count, target_count):
+    """
+    计算需要测试的代理数量
+    
+    规则：
+    1. 如果可用代理 <= 目标数量*5 (30条)，全部测试
+    2. 如果可用代理在 5-25倍之间 (30-150条)，随机抽取5倍数量测试
+    3. 如果可用代理 >= 目标数量*25 (150条)，测试 可用数量/5
+    4. 测试数量上限为 目标数量*10 (60条)
+    
+    Args:
+        available_count: 可用于测试的代理总数
+        target_count: 目标获取的代理数量 (MAX_PROXIES_PER_REGION)
+    
+    Returns:
+        int: 应该测试的代理数量
+    """
+    threshold_low = target_count * 5   # 30
+    threshold_high = target_count * 25  # 150
+    max_test = target_count * 10       # 60
+    
+    # 规则1: 数量较少，全部测试
+    if available_count <= threshold_low:
+        test_count = available_count
+        logging.debug(f"  代理数量 {available_count} <= {threshold_low}，全部测试")
+    
+    # 规则2: 5-25倍之间，随机抽取5倍数量
+    elif available_count < threshold_high:
+        test_count = threshold_low  # 固定测试5倍数量 (30条)
+        logging.debug(f"  代理数量 {available_count} 在5-25倍区间，随机抽取 {test_count} 条测试")
+    
+    # 规则3: >=25倍，按比例测试 (1/5)
+    else:
+        test_count = min(available_count // 5, max_test)
+        logging.debug(f"  代理数量 {available_count} >= {threshold_high}，测试 1/5 = {test_count} 条（上限 {max_test}）")
+    
+    return max(test_count, target_count)  # 至少测试目标数量
+
+
 def get_proxies(region):
     all_proxies = []
 
@@ -336,11 +375,22 @@ def get_proxies(region):
     socks5_proxies = [p for p in filtered_proxies if p.type == "socks5"]
     https_proxies = [p for p in filtered_proxies if p.type == "https"]
 
-    # 优化：只测试最终需要数量的2-3倍
-    test_limit = MAX_PROXIES_PER_REGION * 3
-    test_proxies = (socks5_proxies[:test_limit] + https_proxies[:test_limit])[:test_limit * 2]
+    # 使用新的动态计算逻辑
+    available_count = len(socks5_proxies) + len(https_proxies)
+    test_count = calculate_test_count(available_count, MAX_PROXIES_PER_REGION)
+    
+    # 按比例从 socks5 和 https 中抽取
+    socks5_ratio = len(socks5_proxies) / available_count if available_count > 0 else 0
+    socks5_test_count = int(test_count * socks5_ratio)
+    https_test_count = test_count - socks5_test_count
+    
+    test_proxies = (
+        socks5_proxies[:socks5_test_count] + 
+        https_proxies[:https_test_count]
+    )
 
-    logging.info(f"{region} 将测试 {len(test_proxies)} 个代理")
+    logging.info(f"{region} 将测试 {len(test_proxies)} 个代理 (从 {available_count} 个中选择)")
+    logging.info(f"  └─ SOCKS5: {min(socks5_test_count, len(socks5_proxies))} 个, HTTPS: {min(https_test_count, len(https_proxies))} 个")
 
     candidate_proxies = []
 
