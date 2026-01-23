@@ -163,8 +163,8 @@ def fetch_proxifly_proxies(region, REGION_TO_COUNTRY_CODE):
         return []
 
 
-def fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=3):
-    """从 ProxyDaily 获取代理列表"""
+def fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE):
+    """从 ProxyDaily 获取代理列表（免费版固定1页100条）"""
     proxies = []
     session = requests.Session()
     
@@ -177,60 +177,59 @@ def fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=3):
     
     logging.info(f"[ProxyDaily] 获取 {region} 的代理...")
     
-    for page in range(1, max_pages + 1):
-        try:
-            params = {
-                "draw": f"{page}",
-                "start": f"{(page - 1) * 100}",
-                "length": "100",
-                "search[value]": "",
-                "_": f"{int(time.time() * 1000)}"
-            }
-            
-            resp = session.get(
-                'https://proxy-daily.com/api/serverside/proxies',
-                headers=headers,
-                params=params,
-                timeout=15
-            )
-            resp.raise_for_status()
-            data_items = resp.json().get('data', [])
-            
-            for item in data_items:
-                try:
-                    item_country = item.get('country', '').upper()
+    # 删除 for page in range(1, max_pages + 1): 循环，直接获取第1页
+    try:
+        params = {
+            "draw": "1",
+            "start": "0",
+            "length": "100",
+            "search[value]": "",
+            "_": f"{int(time.time() * 1000)}"
+        }
+        
+        resp = session.get(
+            'https://proxy-daily.com/api/serverside/proxies',
+            headers=headers,
+            params=params,
+            timeout=15
+        )
+        resp.raise_for_status()
+        data_items = resp.json().get('data', [])
+        
+        for item in data_items:
+            try:
+                item_country = item.get('country', '').upper()
+                
+                # 地区过滤:优先匹配目标地区
+                if country_code and item_country != country_code:
+                    continue
+                
+                protocols = item.get('protocol', '').split(',')
+                for protocol in protocols:
+                    protocol = protocol.strip().lower()
                     
-                    # 地区过滤:优先匹配目标地区
-                    if country_code and item_country != country_code:
+                    # 只接受 https 和 socks5，抛弃 http 和 socks4
+                    if protocol not in ['https', 'socks5']:
                         continue
                     
-                    protocols = item.get('protocol', '').split(',')
-                    for protocol in protocols:
-                        protocol = protocol.strip().lower()
-                        
-                        # 只接受 https 和 socks5，抛弃 http 和 socks4
-                        if protocol not in ['https', 'socks5']:
-                            continue
-                        
-                        proxy = ProxyInfo(
-                            host=item['ip'],
-                            port=int(item['port']),
-                            proxy_type=protocol,
-                            country_code=item_country,
-                            anonymity=item.get('anonymity', '').lower(),
-                            delay=item.get('speed'),
-                            source="proxydaily"
-                        )
-                        proxies.append(proxy)
-                        
-                except (KeyError, ValueError, TypeError):
-                    continue
+                    proxy = ProxyInfo(
+                        host=item['ip'],
+                        port=int(item['port']),
+                        proxy_type=protocol,
+                        country_code=item_country,
+                        anonymity=item.get('anonymity', '').lower(),
+                        delay=item.get('speed'),
+                        source="proxydaily"
+                    )
+                    proxies.append(proxy)
+                    
+            except (KeyError, ValueError, TypeError):
+                continue
+        
+        # 删除 time.sleep(0.5) 因为只请求一次
             
-            time.sleep(0.5)  # 避免请求过快
-            
-        except Exception as e:
-            logging.debug(f"ProxyDaily 第 {page} 页失败: {e}")
-            continue
+    except Exception as e:
+        logging.error(f"  ✗ ProxyDaily 获取失败: {e}")
     
     logging.info(f"  ✓ ProxyDaily: {region} 获取 {len(proxies)} 个代理")
     return proxies
