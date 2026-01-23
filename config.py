@@ -50,7 +50,7 @@ PROXY_CHECK_API_TOKEN = "588wbb"
 # 第三方服务 Token
 # ======================
 # 从环境变量读取，如果没有则使用默认值
-WEBSHARE_TOKEN = os.getenv("WEBSHARE_TOKEN", "fd6i0jla6026bmaeavorfjxrbu9dfbz9r5ne4asr")
+WEBSHARE_TOKEN = "fd6i0jla6026bmaeavorfjxrbu9dfbz9r5ne4asr"
 
 # ======================
 # 地区配置（完整版）
