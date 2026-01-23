@@ -3,6 +3,7 @@ import logging
 from bs4 import BeautifulSoup
 import ipaddress
 import time
+from config import WEBSHARE_TOKEN
 
 class ProxyInfo:
     """统一的代理信息类"""
@@ -10,7 +11,7 @@ class ProxyInfo:
                  delay=None, source="unknown"):
         self.host = host
         self.port = port
-        self.type = proxy_type.lower()  # http, https, socks5, socks4
+        self.type = proxy_type.lower()  # https, socks5
         self.country_code = country_code.upper() if country_code else "UNKNOWN"
         self.anonymity = anonymity
         self.delay = delay
@@ -53,15 +54,11 @@ def fetch_proxifly_proxies(region, REGION_TO_COUNTRY_CODE):
         data = response.json()
         for item in data:
             try:
-                protocol = item.get('protocol', 'http').lower()
-                # 只保留 https 和 socks5
+                protocol = item.get('protocol', '').lower()
+                
+                # 只接受 https 和 socks5，抛弃 http 和 socks4
                 if protocol not in ['https', 'socks5']:
-                    if protocol == 'http':
-                        protocol = 'https'  # HTTP 升级为 HTTPS 尝试
-                    elif protocol.startswith('socks'):
-                        protocol = 'socks5'
-                    else:
-                        continue
+                    continue
                 
                 proxy = ProxyInfo(
                     host=item['ip'],
@@ -95,19 +92,20 @@ def fetch_proxifly_proxies(region, REGION_TO_COUNTRY_CODE):
                 continue
             
             try:
-                proxy_type = 'https'
-                if line.startswith('http://'):
-                    proxy_type = 'https'
-                    line = line.replace('http://', '')
-                elif line.startswith('https://'):
+                proxy_type = None
+                
+                # 只接受 https:// 和 socks5://，抛弃 http:// 和 socks4://
+                if line.startswith('https://'):
                     proxy_type = 'https'
                     line = line.replace('https://', '')
                 elif line.startswith('socks5://'):
                     proxy_type = 'socks5'
                     line = line.replace('socks5://', '')
-                elif line.startswith('socks4://'):
-                    proxy_type = 'socks5'  # 升级为 socks5
-                    line = line.replace('socks4://', '')
+                elif line.startswith('http://') or line.startswith('socks4://'):
+                    continue  # 抛弃 http 和 socks4
+                else:
+                    # 没有前缀，默认尝试 https
+                    proxy_type = 'https'
                 
                 parts = line.split(':')
                 if len(parts) >= 2:
@@ -175,18 +173,13 @@ def fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=3):
                     if country_code and item_country != country_code:
                         continue
                     
-                    protocols = item.get('protocol', 'http').split(',')
+                    protocols = item.get('protocol', '').split(',')
                     for protocol in protocols:
                         protocol = protocol.strip().lower()
                         
-                        # 只保留 https 和 socks5
+                        # 只接受 https 和 socks5，抛弃 http 和 socks4
                         if protocol not in ['https', 'socks5']:
-                            if protocol in ['http', 'https']:
-                                protocol = 'https'
-                            elif protocol.startswith('socks'):
-                                protocol = 'socks5'
-                            else:
-                                continue
+                            continue
                         
                         proxy = ProxyInfo(
                             host=item['ip'],
@@ -254,20 +247,15 @@ def fetch_tomcat1235_proxies(region):
                 # 验证 IP 格式
                 ipaddress.ip_address(host)
                 
-                # 只保留 https 和 socks5
+                # 只接受 https 和 socks5，抛弃 http 和 socks4
                 if protocol not in ['https', 'socks5']:
-                    if protocol in ['http', 'https']:
-                        protocol = 'https'
-                    elif protocol.startswith('socks'):
-                        protocol = 'socks5'
-                    else:
-                        continue
+                    continue
                 
                 proxy = ProxyInfo(
                     host=host,
                     port=port,
                     proxy_type=protocol,
-                    country_code="UNKNOWN",
+                    country_code="UNKNOWN",  # 需要后续通过 API 检测补充
                     source="tomcat1235"
                 )
                 proxies.append(proxy)
@@ -280,12 +268,15 @@ def fetch_tomcat1235_proxies(region):
     except Exception as e:
         logging.debug(f"Tomcat1235 请求失败: {e}")
     
-    logging.info(f"  ✓ Tomcat1235: {region} 获取 {len(proxies)} 个代理 (国家码需补充)")
+    logging.info(f"  ✓ Tomcat1235: {region} 获取 {len(proxies)} 个代理 (国家码需API补充)")
     return proxies
 
 
-def fetch_webshare_proxies(region, token="fd6i0jla6026bmaeavorfjxrbu9dfbz9r5ne4asr"):
+def fetch_webshare_proxies(region, token=None):
     """从 Webshare 免费版获取代理，每次最多 10 条"""
+    if token is None:
+        token = WEBSHARE_TOKEN
+    
     proxies = []
     logging.info(f"[Webshare] 获取 {region} 的代理 (免费版 limit=10)...")
     
@@ -311,14 +302,20 @@ def fetch_webshare_proxies(region, token="fd6i0jla6026bmaeavorfjxrbu9dfbz9r5ne4a
         for item in results:
             try:
                 host = item["proxy_address"]
-                # 免费版通常 http 和 https 共用端口，这里取 http 端口（一般也能用于 https）
-                port = int(item["ports"]["http"])
+                # 免费版通常 http 和 https 共用端口，这里取 https 端口（如果存在）
+                port = int(item["ports"].get("https") or item["ports"].get("http"))
                 country_code = item.get("country_code", "UNKNOWN").upper()
                 
-                # Webshare 免费版主要是 http/https 代理，少量 socks5
-                proxy_type = "https"
-                if item.get("proxy_type", "").lower() == "socks5":
+                # Webshare 免费版主要是 https 代理，少量 socks5
+                proxy_type_raw = item.get("proxy_type", "").lower()
+                
+                # 只接受 https 和 socks5，抛弃 http 和 socks4
+                if proxy_type_raw == "socks5":
                     proxy_type = "socks5"
+                elif proxy_type_raw in ["http", "https"]:
+                    proxy_type = "https"
+                else:
+                    continue  # 抛弃其他类型
                 
                 proxy = ProxyInfo(
                     host=host,
