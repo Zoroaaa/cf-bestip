@@ -3,7 +3,6 @@ import logging
 from bs4 import BeautifulSoup
 import ipaddress
 import time
-from config import WEBSHARE_TOKEN
 
 class ProxyInfo:
     """统一的代理信息类"""
@@ -20,7 +19,7 @@ class ProxyInfo:
         self.https_ok = False
         self.api_result = None  # 保存API返回的完整结果
         
-        # ⚠️ 新增：直接在初始化时处理认证信息
+        # 直接在初始化时处理认证信息
         if username and password:
             self.api_result = {
                 "username": username,
@@ -37,7 +36,7 @@ class ProxyInfo:
             "tested_latency": self.tested_latency,
             "https_ok": self.https_ok
         }
-        # ⚠️ 新增：如果有认证信息，添加到字典
+        # 如果有认证信息，添加到字典
         if self.api_result and self.api_result.get("username"):
             result["auth"] = {
                 "username": self.api_result["username"],
@@ -238,6 +237,7 @@ def fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=3):
 
 
 def fetch_tomcat1235_proxies(region):
+    """从 Tomcat1235 获取代理列表"""
     proxies = []
     session = requests.Session()
     
@@ -304,78 +304,50 @@ def fetch_tomcat1235_proxies(region):
     return proxies
 
 
-def fetch_webshare_proxies(region, token=None):
-    """从 Webshare 免费版获取代理，每次最多 10 条"""
-    if token is None:
-        token = WEBSHARE_TOKEN
-
-     # ⚠️ 调试:检查 token 是否正确加载
-    if not token or token == "":
-        logging.error("[Webshare] Token 未配置或为空,请检查 config.py 中的 WEBSHARE_TOKEN")
-        return []
-    
+def fetch_monosans_socks5_proxies(region):
+    """从 monosans/proxy-list 获取 SOCKS5 代理列表"""
     proxies = []
-    logging.info(f"[Webshare] 获取代理 (免费版 limit=10)...")
+    url = "https://raw.githubusercontent.com/monosans/proxy-list/refs/heads/main/proxies/socks5.txt"
+    
+    logging.info(f"[MonosansProxyList] 获取 {region} 的 SOCKS5 代理...")
     
     try:
-        url = "https://proxy.webshare.io/api/v2/proxy/list/"
-        headers = {
-            "Authorization": f"Token {token}",
-            "Accept": "application/json",
-        }
-        params = {
-            "mode": "direct",
-            "page": 1,
-            "page_size": 10,
-        }
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
         
-        resp = requests.get(url, headers=headers, params=params, timeout=15)
-        resp.raise_for_status()
-        
-        data = resp.json()
-        results = data.get("results", [])
-        
-        target_region = region.upper() if region else None
-        
-        for item in results:
+        lines = response.text.strip().split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            
             try:
-                host = item["proxy_address"]
-                port = int(item["port"])  # ⚠️ 修改：直接使用 port 字段
-                country_code = item.get("country_code", "UNKNOWN").upper()
-                
-                # 在客户端进行地区过滤
-                if target_region and country_code != target_region:
+                # 数据格式: IP:PORT
+                parts = line.split(':')
+                if len(parts) != 2:
                     continue
                 
-                # ⚠️ 修改：Webshare 免费版都是 HTTP/HTTPS 代理
-                proxy_type = "https"
+                host = parts[0].strip()
+                port = int(parts[1].strip())
                 
-                # ⚠️ 修改：直接在 ProxyInfo 初始化时传入认证信息
+                # 验证 IP 格式
+                ipaddress.ip_address(host)
+                
                 proxy = ProxyInfo(
                     host=host,
                     port=port,
-                    proxy_type=proxy_type,
-                    country_code=country_code,
-                    anonymity="elite",  # Webshare 的代理通常是高匿名
-                    source="webshare",
-                    username=item.get("username", ""),  # ⚠️ 新增
-                    password=item.get("password", "")   # ⚠️ 新增
+                    proxy_type='socks5',
+                    country_code="UNKNOWN",  # 需要后续通过 API 检测补充
+                    source="monosans"
                 )
-                
-                # ⚠️ 可选：额外保存完整的 API 返回数据
-                if not proxy.api_result:
-                    proxy.api_result = {}
-                proxy.api_result["id"] = item.get("id", "")
-                proxy.api_result["last_verification"] = item.get("last_verification", "")
-                
                 proxies.append(proxy)
-            except (KeyError, ValueError, TypeError) as e:
-                logging.debug(f"Webshare 解析错误: {e}")
+                
+            except (ValueError, ipaddress.AddressValueError, IndexError):
                 continue
         
-        logging.info(f"  ✓ Webshare: 获取 {len(results)} 个代理，筛选出 {len(proxies)} 个 {region if region else '全部'} 代理")
+        logging.info(f"  ✓ MonosansProxyList: 获取 {len(proxies)} 个 SOCKS5 代理 (国家码需API补充)")
         return proxies
         
     except Exception as e:
-        logging.error(f"  ✗ Webshare 获取失败: {e}")
+        logging.error(f"  ✗ MonosansProxyList 获取失败: {e}")
         return []
