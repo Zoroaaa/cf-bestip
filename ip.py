@@ -17,7 +17,7 @@ from proxy_sources import (
     fetch_proxifly_proxies,
     fetch_proxydaily_proxies,
     fetch_tomcat1235_proxies,
-    fetch_webshare_proxies
+    fetch_monosans_socks5_proxies
 )
 from tests import check_proxy_with_api, run_internal_tests
 
