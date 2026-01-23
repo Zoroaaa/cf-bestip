@@ -308,6 +308,11 @@ def fetch_webshare_proxies(region, token=None):
     """从 Webshare 免费版获取代理，每次最多 10 条"""
     if token is None:
         token = WEBSHARE_TOKEN
+
+     # ⚠️ 调试:检查 token 是否正确加载
+    if not token or token == "":
+        logging.error("[Webshare] Token 未配置或为空,请检查 config.py 中的 WEBSHARE_TOKEN")
+        return []
     
     proxies = []
     logging.info(f"[Webshare] 获取代理 (免费版 limit=10)...")
