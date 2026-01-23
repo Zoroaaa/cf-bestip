@@ -38,12 +38,25 @@ def curl_test(ip, proxy=None):
         cmd = ["curl", "-k", "-o", "/dev/null", "-s"]
 
         if proxy:
-            # 修复：根据代理类型正确设置参数
+            # ⚠️ 修改：支持 Webshare 代理认证
             if proxy.type in ['socks5', 'socks4']:
-                cmd.extend(["--socks5", f"{proxy.host}:{proxy.port}"])
+                # SOCKS5 代理
+                proxy_url = f"{proxy.host}:{proxy.port}"
+                # 如果有认证信息，添加到 URL
+                if proxy.api_result and proxy.api_result.get("username"):
+                    username = proxy.api_result["username"]
+                    password = proxy.api_result["password"]
+                    proxy_url = f"{username}:{password}@{proxy_url}"
+                cmd.extend(["--socks5", proxy_url])
             else:
-                # 对于 https 代理，使用正确的协议前缀
-                proxy_url = f"{proxy.type}://{proxy.host}:{proxy.port}"
+                # HTTPS 代理
+                # 如果有认证信息（Webshare），包含在 URL 中
+                if proxy.api_result and proxy.api_result.get("username"):
+                    username = proxy.api_result["username"]
+                    password = proxy.api_result["password"]
+                    proxy_url = f"http://{username}:{password}@{proxy.host}:{proxy.port}"
+                else:
+                    proxy_url = f"{proxy.type}://{proxy.host}:{proxy.port}"
                 cmd.extend(["-x", proxy_url])
 
         cmd.extend([
@@ -75,10 +88,21 @@ def curl_test(ip, proxy=None):
         hdr_cmd = ["curl", "-k", "-sI"]
 
         if proxy:
+            # ⚠️ 修改：同样支持认证
             if proxy.type in ['socks5', 'socks4']:
-                hdr_cmd.extend(["--socks5", f"{proxy.host}:{proxy.port}"])
+                proxy_url = f"{proxy.host}:{proxy.port}"
+                if proxy.api_result and proxy.api_result.get("username"):
+                    username = proxy.api_result["username"]
+                    password = proxy.api_result["password"]
+                    proxy_url = f"{username}:{password}@{proxy_url}"
+                hdr_cmd.extend(["--socks5", proxy_url])
             else:
-                proxy_url = f"{proxy.type}://{proxy.host}:{proxy.port}"
+                if proxy.api_result and proxy.api_result.get("username"):
+                    username = proxy.api_result["username"]
+                    password = proxy.api_result["password"]
+                    proxy_url = f"http://{username}:{password}@{proxy.host}:{proxy.port}"
+                else:
+                    proxy_url = f"{proxy.type}://{proxy.host}:{proxy.port}"
                 hdr_cmd.extend(["-x", proxy_url])
 
         hdr_cmd.extend([
@@ -126,7 +150,6 @@ def test_ip(ip, proxy=None):
     """现在只测一个域名"""
     result = curl_test(ip, proxy)
     if result:
-        # 为了保持数据结构兼容，仍然返回 list，但里面最多只有一条
         return [result]
     return []
 
@@ -156,8 +179,7 @@ def score_ip(latencies):
         return 0
 
     lat = latencies[0]
-    # 简单评分：越低越好，带一点非线性衰减
-    score = 1 / (1 + lat / 200)           # 200ms → 0.5分，100ms → 0.667，50ms → 0.8
+    score = 1 / (1 + lat / 200)
     score = round(score, 4)
     return score
 
@@ -180,7 +202,7 @@ def aggregate_nodes(raw):
             "port": random.choice(HTTPS_PORTS),
             "region": best["region"],
             "colo": best["colo"],
-            "latencies": latencies,           # 现在一般只有1个值
+            "latencies": latencies,
             "score": score
         })
 
@@ -193,7 +215,7 @@ def scan_region(region, ips, proxies):
     logging.info(f"{'='*60}")
 
     raw_results = []
-    MIN_EXPECTED_NODES = 8  # 统一策略：每个地区至少期望获得8个有效节点
+    MIN_EXPECTED_NODES = 8
 
     if proxies:
         logging.info(f"使用 {len(proxies)} 个代理进行扫描...")
@@ -204,7 +226,11 @@ def scan_region(region, ips, proxies):
             if not proxy_ips:
                 continue
 
-            proxy_info = f"{proxy.host}:{proxy.port}({proxy.type})"
+            # ⚠️ 修改：显示代理信息时标注是否需要认证
+            auth_info = ""
+            if proxy.api_result and proxy.api_result.get("username"):
+                auth_info = "[AUTH]"
+            proxy_info = f"{proxy.host}:{proxy.port}({proxy.type}){auth_info}"
             logging.info(f"  → 通过代理 {proxy_info} 测试 {len(proxy_ips)} 个IP...")
 
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -219,15 +245,13 @@ def scan_region(region, ips, proxies):
 
         logging.info(f"  ✓ 代理扫描收集: {len(raw_results)} 条结果")
 
-    # 统一的补充策略：如果有效节点数不足，补充直连测试
     current_nodes = len(aggregate_nodes(raw_results))
     
     if current_nodes < MIN_EXPECTED_NODES:
         needed_nodes = MIN_EXPECTED_NODES - current_nodes
-        # 估算需要测试的IP数量（假设20%成功率）
         supplement_count = min(len(ips) // 2, needed_nodes * 5)
         
-        logging.info(f"⚠ 当前有效节点 {current_nodes} 个，目标 {MIN_EXPECTED_NODES} 个")
+        logging.info(f"⚠ 当前有效节点 {current_nodes} 个,目标 {MIN_EXPECTED_NODES} 个")
         logging.info(f"  使用直连补充测试 {supplement_count} 个IP...")
 
         remaining_ips = ips[:supplement_count]
@@ -245,49 +269,28 @@ def scan_region(region, ips, proxies):
         final_nodes = len(aggregate_nodes(raw_results))
         logging.info(f"  ✓ 直连补充后有效节点: {final_nodes} 个")
     else:
-        logging.info(f"  ✓ 代理结果充足 ({current_nodes} 个节点)，跳过直连补充")
+        logging.info(f"  ✓ 代理结果充足 ({current_nodes} 个节点),跳过直连补充")
 
     logging.info(f"✓ {region}: 总计收集 {len(raw_results)} 条测试结果\n")
     return raw_results
 
 
 def calculate_test_count(available_count, target_count):
-    """
-    计算需要测试的代理数量
+    threshold_low = target_count * 5
+    threshold_high = target_count * 25
+    max_test = target_count * 10
     
-    规则：
-    1. 如果可用代理 <= 目标数量*5 (30条)，全部测试
-    2. 如果可用代理在 5-25倍之间 (30-150条)，随机抽取5倍数量测试
-    3. 如果可用代理 >= 目标数量*25 (150条)，测试 可用数量/5
-    4. 测试数量上限为 目标数量*10 (60条)
-    
-    Args:
-        available_count: 可用于测试的代理总数
-        target_count: 目标获取的代理数量 (MAX_PROXIES_PER_REGION)
-    
-    Returns:
-        int: 应该测试的代理数量
-    """
-    threshold_low = target_count * 5   # 30
-    threshold_high = target_count * 25  # 150
-    max_test = target_count * 10       # 60
-    
-    # 规则1: 数量较少，全部测试
     if available_count <= threshold_low:
         test_count = available_count
-        logging.debug(f"  代理数量 {available_count} <= {threshold_low}，全部测试")
-    
-    # 规则2: 5-25倍之间，随机抽取5倍数量
+        logging.debug(f"  代理数量 {available_count} <= {threshold_low},全部测试")
     elif available_count < threshold_high:
-        test_count = threshold_low  # 固定测试5倍数量 (30条)
-        logging.debug(f"  代理数量 {available_count} 在5-25倍区间，随机抽取 {test_count} 条测试")
-    
-    # 规则3: >=25倍，按比例测试 (1/5)
+        test_count = threshold_low
+        logging.debug(f"  代理数量 {available_count} 在5-25倍区间,随机抽取 {test_count} 条测试")
     else:
         test_count = min(available_count // 5, max_test)
-        logging.debug(f"  代理数量 {available_count} >= {threshold_high}，测试 1/5 = {test_count} 条（上限 {max_test}）")
+        logging.debug(f"  代理数量 {available_count} >= {threshold_high},测试 1/5 = {test_count} 条(上限 {max_test})")
     
-    return max(test_count, target_count)  # 至少测试目标数量
+    return max(test_count, target_count)
 
 
 def get_proxies(region):
@@ -304,12 +307,10 @@ def get_proxies(region):
 
     target_country_code = REGION_TO_COUNTRY_CODE.get(region, region.upper())
     
-    # 处理 UNKNOWN 国家码的代理：通过 API 检测获取真实国家码
     unknown_proxies = [p for p in all_proxies if p.country_code == "UNKNOWN"]
     if unknown_proxies:
-        logging.info(f"{region} 发现 {len(unknown_proxies)} 个未知国家码代理，进行API检测...")
+        logging.info(f"{region} 发现 {len(unknown_proxies)} 个未知国家码代理,进行API检测...")
         
-        # 只测试前5个来获取国家码
         test_count = min(5, len(unknown_proxies))
         with ThreadPoolExecutor(max_workers=5) as executor:
             future_to_proxy = {
@@ -327,7 +328,6 @@ def get_proxies(region):
                 except Exception as e:
                     logging.debug(f"  代理国家码检测失败: {proxy.host}:{proxy.port} - {e}")
     
-    # 过滤匹配地区的代理
     filtered_proxies = []
     for proxy in all_proxies:
         if proxy.country_code == target_country_code:
@@ -337,11 +337,9 @@ def get_proxies(region):
         if mapped_region == region:
             filtered_proxies.append(proxy)
 
-    # 如果过滤后没有代理，使用相近地区的代理（而非全部）
     if not filtered_proxies:
-        logging.warning(f"⚠ {region} 无精确匹配代理，尝试使用相近地区代理")
+        logging.warning(f"⚠ {region} 无精确匹配代理,尝试使用相近地区代理")
         
-        # 定义地区相近性（按地理位置）
         region_groups = {
             "US": ["CA"],
             "CA": ["US"],
@@ -363,8 +361,7 @@ def get_proxies(region):
                 filtered_proxies.append(proxy)
         
         if not filtered_proxies:
-            # 最后才使用全部代理
-            logging.warning(f"⚠ {region} 无相近地区代理，使用全部代理")
+            logging.warning(f"⚠ {region} 无相近地区代理,使用全部代理")
             filtered_proxies = all_proxies
 
     logging.info(f"{region} 筛选后代理数: {len(filtered_proxies)}")
@@ -375,11 +372,9 @@ def get_proxies(region):
     socks5_proxies = [p for p in filtered_proxies if p.type == "socks5"]
     https_proxies = [p for p in filtered_proxies if p.type == "https"]
 
-    # 使用新的动态计算逻辑
     available_count = len(socks5_proxies) + len(https_proxies)
     test_count = calculate_test_count(available_count, MAX_PROXIES_PER_REGION)
     
-    # 按比例从 socks5 和 https 中抽取
     socks5_ratio = len(socks5_proxies) / available_count if available_count > 0 else 0
     socks5_test_count = int(test_count * socks5_ratio)
     https_test_count = test_count - socks5_test_count
@@ -420,9 +415,11 @@ def get_proxies(region):
     if remaining > 0:
         best_proxies.extend(https_list[:remaining])
 
+    # ⚠️ 修改：显示代理时标注认证信息
     logging.info(f"✓ {region} 最终选出 {len(best_proxies)} 个代理:")
     for i, p in enumerate(best_proxies, 1):
-        logging.info(f"  {i}. {p.host}:{p.port} ({p.type.upper()}) - 延迟:{p.tested_latency or 'N/A'}ms [src:{p.source}, country:{p.country_code}]")
+        auth_marker = "[AUTH]" if (p.api_result and p.api_result.get("username")) else ""
+        logging.info(f"  {i}. {p.host}:{p.port} ({p.type.upper()}){auth_marker} - 延迟:{p.tested_latency or 'N/A'}ms [src:{p.source}, country:{p.country_code}]")
 
     return best_proxies
 
@@ -432,7 +429,13 @@ def save_proxy_list(region_proxies):
 
     for region, proxies in region_proxies.items():
         for proxy in proxies:
-            line = f"{proxy.host}:{proxy.port}#{region}_{proxy.tested_latency or 'N/A'}ms_{proxy.source}\n"
+            # ⚠️ 修改：如果有认证信息，保存完整格式
+            if proxy.api_result and proxy.api_result.get("username"):
+                username = proxy.api_result["username"]
+                password = proxy.api_result["password"]
+                line = f"{username}:{password}@{proxy.host}:{proxy.port}#{region}_{proxy.tested_latency or 'N/A'}ms_{proxy.source}\n"
+            else:
+                line = f"{proxy.host}:{proxy.port}#{region}_{proxy.tested_latency or 'N/A'}ms_{proxy.source}\n"
             all_proxies_lines.append(line)
 
     with open(f"{OUTPUT_DIR}/proxy_all.txt", "w", encoding="utf-8") as f:
@@ -443,7 +446,13 @@ def save_proxy_list(region_proxies):
     for region, proxies in region_proxies.items():
         lines = []
         for proxy in proxies:
-            line = f"{proxy.host}:{proxy.port}#{region}_{proxy.tested_latency or 'N/A'}ms_{proxy.source}\n"
+            # ⚠️ 修改：同样处理认证信息
+            if proxy.api_result and proxy.api_result.get("username"):
+                username = proxy.api_result["username"]
+                password = proxy.api_result["password"]
+                line = f"{username}:{password}@{proxy.host}:{proxy.port}#{region}_{proxy.tested_latency or 'N/A'}ms_{proxy.source}\n"
+            else:
+                line = f"{proxy.host}:{proxy.port}#{region}_{proxy.tested_latency or 'N/A'}ms_{proxy.source}\n"
             lines.append(line)
 
         with open(f"{OUTPUT_DIR}/proxy_{region}.txt", "w", encoding="utf-8") as f:
@@ -458,29 +467,26 @@ def load_html_template():
         with open(template_path, 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
-        logging.error("未找到 template.html 文件，跳过 HTML 生成")
+        logging.error("未找到 template.html 文件,跳过 HTML 生成")
         return None
 
 
 def generate_html(all_nodes, region_results, region_proxies):
-    """生成HTML页面 - 优化版"""
+    """生成HTML页面"""
     template = load_html_template()
     if not template:
         return
 
     region_cards_html = []
 
-    # 按地区生成卡片
     for region in sorted(region_results.keys()):
         nodes = region_results[region]
         if not nodes:
             continue
 
-        # 获取地区中文名和旗帜
         region_name = REGION_CONFIG.get(region, {}).get("name", region)
         region_flag = REGION_CONFIG.get(region, {}).get("flag", "")
 
-        # IP列表HTML
         ip_items_html = []
         for node in nodes[:MAX_OUTPUT_PER_REGION]:
             min_latency = min(node['latencies']) if node['latencies'] else "N/A"
@@ -495,10 +501,14 @@ def generate_html(all_nodes, region_results, region_proxies):
             </div>"""
             ip_items_html.append(ip_html)
 
-        # 代理列表HTML
         proxy_items_html = []
         proxies = region_proxies.get(region, [])
         for proxy in proxies:
+            # ⚠️ 修改：在HTML中显示是否需要认证
+            auth_badge = ""
+            if proxy.api_result and proxy.api_result.get("username"):
+                auth_badge = '<span class="badge badge-warning">🔐需认证</span>'
+            
             proxy_html = f"""
             <div class="proxy-item">
                 <div class="ip-address">{proxy.host}:{proxy.port}</div>
@@ -507,11 +517,11 @@ def generate_html(all_nodes, region_results, region_proxies):
                     <span class="badge badge-latency">{proxy.tested_latency or 'N/A'}ms</span>
                     <span class="badge badge-source">{proxy.source}</span>
                     <span class="badge badge-colo">{proxy.country_code}</span>
+                    {auth_badge}
                 </div>
             </div>"""
             proxy_items_html.append(proxy_html)
 
-        # 组装代理部分
         proxy_section = ""
         if proxy_items_html:
             proxy_section = f"""
@@ -520,7 +530,6 @@ def generate_html(all_nodes, region_results, region_proxies):
                 {''.join(proxy_items_html)}
             </div>"""
 
-        # 生成地区卡片
         card_html = f"""
         <div class="region-card">
             <div class="region-header">
@@ -541,16 +550,13 @@ def generate_html(all_nodes, region_results, region_proxies):
         </div>"""
         region_cards_html.append(card_html)
 
-    # 统计总代理数
     total_proxies = sum(len(proxies) for proxies in region_proxies.values())
     
-    # 生成动态支持地区列表
     supported_regions = " | ".join([
         f"{config.get('name', region)} {config.get('flag', '')}"
         for region, config in sorted(REGION_CONFIG.items())
     ])
 
-    # 替换模板变量
     html_content = template
     html_content = html_content.replace('{{GENERATED_TIME}}', get_generated_time())
     html_content = html_content.replace('{{TOTAL_NODES}}', str(len(all_nodes)))
@@ -559,7 +565,6 @@ def generate_html(all_nodes, region_results, region_proxies):
     html_content = html_content.replace('{{REGION_CARDS}}', '\n'.join(region_cards_html))
     html_content = html_content.replace('{{SUPPORTED_REGIONS}}', supported_regions)
 
-    # 写入文件
     with open(f"{OUTPUT_DIR}/index.html", "w", encoding="utf-8") as f:
         f.write(html_content)
 
@@ -575,12 +580,12 @@ def main():
 
     logging.info(f"\n{'#'*70}")
     logging.info("Cloudflare IP 优选扫描器 V2.1 单域名版")
-    logging.info(f"测试域名：{TRACE_DOMAIN}")
-    logging.info("代理检测：API")
+    logging.info(f"测试域名:{TRACE_DOMAIN}")
+    logging.info("代理检测:API")
     logging.info(f"{'#'*70}\n")
 
     if not run_internal_tests():
-        logging.error("内部自检未通过，程序退出")
+        logging.error("内部自检未通过,程序退出")
         return
 
     logging.info("\n" + "="*60)
@@ -590,7 +595,7 @@ def main():
     logging.info("\n获取 Cloudflare IP 范围...")
     cidrs = fetch_cf_ipv4_cidrs()
     if not cidrs:
-        logging.error("无法获取 Cloudflare IP 段，程序退出")
+        logging.error("无法获取 Cloudflare IP 段,程序退出")
         return
 
     total_ips = sum(cfg["sample"] for cfg in REGION_CONFIG.values())
@@ -629,12 +634,10 @@ def main():
     logging.info(f"总计发现 {len(all_nodes)} 个节点")
     logging.info(f"{'='*60}\n")
 
-    # 保存总 IP 列表
     all_lines = [f'{n["ip"]}:{n["port"]}#{n["region"]}-score{n["score"]:.4f}\n' for n in all_nodes]
     with open(f"{OUTPUT_DIR}/ip_all.txt", "w", encoding="utf-8") as f:
         f.writelines(all_lines)
 
-    # 按地区保存 IP
     for region, nodes in region_results.items():
         nodes.sort(key=lambda x: x["score"], reverse=True)
         top_nodes = nodes[:MAX_OUTPUT_PER_REGION]
@@ -645,10 +648,8 @@ def main():
 
         logging.info(f"{region}: 保存 {len(top_nodes)} 个节点")
 
-    # 保存代理列表
     save_proxy_list(region_proxies)
 
-    # 保存 JSON
     with open(f"{OUTPUT_DIR}/ip_candidates.json", "w", encoding="utf-8") as f:
         json.dump({
             "meta": {
@@ -663,10 +664,8 @@ def main():
             "nodes": all_nodes[:200]
         }, f, indent=2, ensure_ascii=False)
 
-    # 生成 HTML
     generate_html(all_nodes, region_results, region_proxies)
 
-    # 打印统计
     print("\n" + "="*60)
     print("📊 扫描统计")
     print("="*60)
