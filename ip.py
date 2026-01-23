@@ -287,9 +287,9 @@ def get_proxies(region):
     all_proxies = []
 
     all_proxies.extend(fetch_proxifly_proxies(region, REGION_TO_COUNTRY_CODE))
-    all_proxies.extend(fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=2))
+    all_proxies.extend(fetch_proxydaily_proxies(region, REGION_TO_COUNTRY_CODE, max_pages=5))
     all_proxies.extend(fetch_tomcat1235_proxies(region))
-    all_proxies.extend(fetch_webshare_proxies(region))
+    all_proxies.extend(fetch_monosans_socks5_proxies(region))
 
     if not all_proxies:
         logging.warning(f"⚠ {region} 未获取到任何代理")
