@@ -278,7 +278,7 @@ def fetch_webshare_proxies(region, token=None):
         token = WEBSHARE_TOKEN
     
     proxies = []
-    logging.info(f"[Webshare] 获取 {region} 的代理 (免费版 limit=10)...")
+    logging.info(f"[Webshare] 获取代理 (免费版 limit=10)...")
     
     try:
         url = "https://proxy.webshare.io/api/v2/proxy/list/"
@@ -289,8 +289,8 @@ def fetch_webshare_proxies(region, token=None):
         params = {
             "mode": "direct",
             "page": 1,
-            "page_size": 10,           # 免费版建议不要超过10
-            "country_code__in": region.upper(),  # 尝试按国家过滤
+            "page_size": 10,
+            # 移除 country_code__in 参数，免费版可能不支持
         }
         
         resp = requests.get(url, headers=headers, params=params, timeout=15)
@@ -299,23 +299,26 @@ def fetch_webshare_proxies(region, token=None):
         data = resp.json()
         results = data.get("results", [])
         
+        target_region = region.upper()
+        
         for item in results:
             try:
                 host = item["proxy_address"]
-                # 免费版通常 http 和 https 共用端口，这里取 https 端口（如果存在）
                 port = int(item["ports"].get("https") or item["ports"].get("http"))
                 country_code = item.get("country_code", "UNKNOWN").upper()
                 
-                # Webshare 免费版主要是 https 代理，少量 socks5
+                # 在客户端进行地区过滤
+                if target_region and country_code != target_region:
+                    continue
+                
                 proxy_type_raw = item.get("proxy_type", "").lower()
                 
-                # 只接受 https 和 socks5，抛弃 http 和 socks4
                 if proxy_type_raw == "socks5":
                     proxy_type = "socks5"
                 elif proxy_type_raw in ["http", "https"]:
                     proxy_type = "https"
                 else:
-                    continue  # 抛弃其他类型
+                    continue
                 
                 proxy = ProxyInfo(
                     host=host,
@@ -330,7 +333,7 @@ def fetch_webshare_proxies(region, token=None):
                 logging.debug(f"Webshare 解析错误: {e}")
                 continue
         
-        logging.info(f"  ✓ Webshare: {region} 获取 {len(proxies)} 个代理")
+        logging.info(f"  ✓ Webshare: 获取 {len(results)} 个代理，筛选出 {len(proxies)} 个 {region} 代理")
         return proxies
         
     except Exception as e:
