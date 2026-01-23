@@ -8,7 +8,7 @@ from config import WEBSHARE_TOKEN
 class ProxyInfo:
     """统一的代理信息类"""
     def __init__(self, host, port, proxy_type, country_code=None, anonymity=None, 
-                 delay=None, source="unknown"):
+                 delay=None, source="unknown", username=None, password=None):
         self.host = host
         self.port = port
         self.type = proxy_type.lower()  # https, socks5
@@ -20,8 +20,15 @@ class ProxyInfo:
         self.https_ok = False
         self.api_result = None  # 保存API返回的完整结果
         
+        # ⚠️ 新增：直接在初始化时处理认证信息
+        if username and password:
+            self.api_result = {
+                "username": username,
+                "password": password
+            }
+        
     def to_dict(self):
-        return {
+        result = {
             "host": self.host,
             "port": self.port,
             "type": self.type,
@@ -30,9 +37,34 @@ class ProxyInfo:
             "tested_latency": self.tested_latency,
             "https_ok": self.https_ok
         }
+        # ⚠️ 新增：如果有认证信息，添加到字典
+        if self.api_result and self.api_result.get("username"):
+            result["auth"] = {
+                "username": self.api_result["username"],
+                "password": self.api_result["password"]
+            }
+        return result
+    
+    def get_proxy_url(self, protocol="http"):
+        """
+        获取完整的代理URL（包含认证信息）
+        
+        Args:
+            protocol: 协议类型，默认 "http"
+            
+        Returns:
+            str: 完整的代理URL
+        """
+        if self.api_result and self.api_result.get("username"):
+            username = self.api_result["username"]
+            password = self.api_result["password"]
+            return f"{protocol}://{username}:{password}@{self.host}:{self.port}"
+        else:
+            return f"{protocol}://{self.host}:{self.port}"
     
     def __repr__(self):
-        return f"Proxy({self.host}:{self.port}, {self.type}, {self.country_code}, src={self.source})"
+        auth_info = "[AUTH]" if (self.api_result and self.api_result.get("username")) else ""
+        return f"Proxy({self.host}:{self.port}, {self.type}, {self.country_code}, src={self.source}){auth_info}"
 
 
 def fetch_proxifly_proxies(region, REGION_TO_COUNTRY_CODE):
@@ -298,54 +330,47 @@ def fetch_webshare_proxies(region, token=None):
         data = resp.json()
         results = data.get("results", [])
         
-        target_region = region.upper()
+        target_region = region.upper() if region else None
         
         for item in results:
             try:
                 host = item["proxy_address"]
-                
-                # 处理端口字段 - 优先使用 https 端口，如果没有则使用 http 端口
-                ports = item.get("ports", {})
-                port = ports.get("https") or ports.get("http")
-                if port is None:
-                    continue  # 如果没有端口信息则跳过
-                port = int(port)
-                
+                port = int(item["port"])  # ⚠️ 修改：直接使用 port 字段
                 country_code = item.get("country_code", "UNKNOWN").upper()
                 
                 # 在客户端进行地区过滤
                 if target_region and country_code != target_region:
                     continue
                 
-                # 处理代理类型
-                proxy_type_raw = item.get("proxy_type", "").lower()
-                if proxy_type_raw == "socks5":
-                    proxy_type = "socks5"
-                elif proxy_type_raw in ["http", "https"]:
-                    proxy_type = "https"
-                else:
-                    continue  # 不支持的代理类型
+                # ⚠️ 修改：Webshare 免费版都是 HTTP/HTTPS 代理
+                proxy_type = "https"
                 
-                # 推断匿名性
-                anonymity = "elite" if item.get("high_country_confidence", False) else "anonymous"
-                
+                # ⚠️ 修改：直接在 ProxyInfo 初始化时传入认证信息
                 proxy = ProxyInfo(
                     host=host,
                     port=port,
                     proxy_type=proxy_type,
                     country_code=country_code,
-                    anonymity=anonymity,
-                    source="webshare"
+                    anonymity="elite",  # Webshare 的代理通常是高匿名
+                    source="webshare",
+                    username=item.get("username", ""),  # ⚠️ 新增
+                    password=item.get("password", "")   # ⚠️ 新增
                 )
-                proxies.append(proxy)
                 
+                # ⚠️ 可选：额外保存完整的 API 返回数据
+                if not proxy.api_result:
+                    proxy.api_result = {}
+                proxy.api_result["id"] = item.get("id", "")
+                proxy.api_result["last_verification"] = item.get("last_verification", "")
+                
+                proxies.append(proxy)
             except (KeyError, ValueError, TypeError) as e:
-                logging.debug(f"Webshare 解析错误: {e}, 项目: {item}")
+                logging.debug(f"Webshare 解析错误: {e}")
                 continue
         
-        logging.info(f"  ✓ Webshare: 获取 {len(results)} 个代理，筛选出 {len(proxies)} 个 {region} 代理")
+        logging.info(f"  ✓ Webshare: 获取 {len(results)} 个代理，筛选出 {len(proxies)} 个 {region if region else '全部'} 代理")
         return proxies
         
     except Exception as e:
-        logging.error(f"  ✗✗ Webshare 获取失败: {e}")
+        logging.error(f"  ✗ Webshare 获取失败: {e}")
         return []
