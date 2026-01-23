@@ -38,10 +38,13 @@ def curl_test(ip, proxy=None):
         cmd = ["curl", "-k", "-o", "/dev/null", "-s"]
 
         if proxy:
+            # 修复：根据代理类型正确设置参数
             if proxy.type in ['socks5', 'socks4']:
                 cmd.extend(["--socks5", f"{proxy.host}:{proxy.port}"])
             else:
-                cmd.extend(["-x", f"http://{proxy.host}:{proxy.port}"])
+                # 对于 https 代理，使用正确的协议前缀
+                proxy_url = f"{proxy.type}://{proxy.host}:{proxy.port}"
+                cmd.extend(["-x", proxy_url])
 
         cmd.extend([
             "-w", "%{time_connect} %{time_appconnect} %{http_code}",
@@ -75,7 +78,8 @@ def curl_test(ip, proxy=None):
             if proxy.type in ['socks5', 'socks4']:
                 hdr_cmd.extend(["--socks5", f"{proxy.host}:{proxy.port}"])
             else:
-                hdr_cmd.extend(["-x", f"http://{proxy.host}:{proxy.port}"])
+                proxy_url = f"{proxy.type}://{proxy.host}:{proxy.port}"
+                hdr_cmd.extend(["-x", proxy_url])
 
         hdr_cmd.extend([
             "--connect-timeout", str(CONNECT_TIMEOUT + 2),
@@ -189,6 +193,7 @@ def scan_region(region, ips, proxies):
     logging.info(f"{'='*60}")
 
     raw_results = []
+    MIN_EXPECTED_NODES = 8  # 统一策略：每个地区至少期望获得8个有效节点
 
     if proxies:
         logging.info(f"使用 {len(proxies)} 个代理进行扫描...")
@@ -214,11 +219,16 @@ def scan_region(region, ips, proxies):
 
         logging.info(f"  ✓ 代理扫描收集: {len(raw_results)} 条结果")
 
-    # 如果代理结果太少，补充直连测试
-    expected_results = len(ips) * 0.2
-    if len(raw_results) < expected_results:
-        supplement_count = len(ips) // 2 if raw_results else len(ips)
-        logging.info(f"⚠ 代理结果不足，使用直连补充 {supplement_count} 个IP...")
+    # 统一的补充策略：如果有效节点数不足，补充直连测试
+    current_nodes = len(aggregate_nodes(raw_results))
+    
+    if current_nodes < MIN_EXPECTED_NODES:
+        needed_nodes = MIN_EXPECTED_NODES - current_nodes
+        # 估算需要测试的IP数量（假设20%成功率）
+        supplement_count = min(len(ips) // 2, needed_nodes * 5)
+        
+        logging.info(f"⚠ 当前有效节点 {current_nodes} 个，目标 {MIN_EXPECTED_NODES} 个")
+        logging.info(f"  使用直连补充测试 {supplement_count} 个IP...")
 
         remaining_ips = ips[:supplement_count]
 
@@ -232,9 +242,10 @@ def scan_region(region, ips, proxies):
                 except:
                     pass
 
-        logging.info(f"  ✓ 直连补充后总计: {len(raw_results)} 条结果")
+        final_nodes = len(aggregate_nodes(raw_results))
+        logging.info(f"  ✓ 直连补充后有效节点: {final_nodes} 个")
     else:
-        logging.info("  ✓ 代理结果充足，跳过直连补充")
+        logging.info(f"  ✓ 代理结果充足 ({current_nodes} 个节点)，跳过直连补充")
 
     logging.info(f"✓ {region}: 总计收集 {len(raw_results)} 条测试结果\n")
     return raw_results
@@ -248,9 +259,37 @@ def get_proxies(region):
     all_proxies.extend(fetch_tomcat1235_proxies(region))
     all_proxies.extend(fetch_webshare_proxies(region))
 
-    target_country_code = REGION_TO_COUNTRY_CODE.get(region, region.upper())
-    filtered_proxies = []
+    if not all_proxies:
+        logging.warning(f"⚠ {region} 未获取到任何代理")
+        return []
 
+    target_country_code = REGION_TO_COUNTRY_CODE.get(region, region.upper())
+    
+    # 处理 UNKNOWN 国家码的代理：通过 API 检测获取真实国家码
+    unknown_proxies = [p for p in all_proxies if p.country_code == "UNKNOWN"]
+    if unknown_proxies:
+        logging.info(f"{region} 发现 {len(unknown_proxies)} 个未知国家码代理，进行API检测...")
+        
+        # 只测试前5个来获取国家码
+        test_count = min(5, len(unknown_proxies))
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_proxy = {
+                executor.submit(check_proxy_with_api, p): p 
+                for p in unknown_proxies[:test_count]
+            }
+            
+            for future in as_completed(future_to_proxy):
+                proxy = future_to_proxy[future]
+                try:
+                    result = future.result(timeout=PROXY_TEST_TIMEOUT + 2)
+                    if result["success"] and result.get("country_code"):
+                        proxy.country_code = result["country_code"]
+                        logging.debug(f"  更新代理国家码: {proxy.host}:{proxy.port} → {proxy.country_code}")
+                except Exception as e:
+                    logging.debug(f"  代理国家码检测失败: {proxy.host}:{proxy.port} - {e}")
+    
+    # 过滤匹配地区的代理
+    filtered_proxies = []
     for proxy in all_proxies:
         if proxy.country_code == target_country_code:
             filtered_proxies.append(proxy)
@@ -259,11 +298,37 @@ def get_proxies(region):
         if mapped_region == region:
             filtered_proxies.append(proxy)
 
+    # 如果过滤后没有代理，使用相近地区的代理（而非全部）
     if not filtered_proxies:
-        logging.warning(f"⚠ {region} 无匹配代理，使用全部代理")
-        filtered_proxies = all_proxies
+        logging.warning(f"⚠ {region} 无精确匹配代理，尝试使用相近地区代理")
+        
+        # 定义地区相近性（按地理位置）
+        region_groups = {
+            "US": ["CA"],
+            "CA": ["US"],
+            "HK": ["SG", "JP"],
+            "SG": ["HK", "JP"],
+            "JP": ["HK", "SG"],
+            "DE": ["FR", "NL", "GB"],
+            "FR": ["DE", "NL", "GB"],
+            "NL": ["DE", "FR", "GB"],
+            "GB": ["DE", "FR", "NL"],
+            "IT": ["FR", "DE"],
+            "RU": ["DE"],
+            "IN": ["SG"],
+        }
+        
+        nearby_regions = region_groups.get(region, [])
+        for proxy in all_proxies:
+            if proxy.country_code in [REGION_TO_COUNTRY_CODE.get(r) for r in nearby_regions]:
+                filtered_proxies.append(proxy)
+        
+        if not filtered_proxies:
+            # 最后才使用全部代理
+            logging.warning(f"⚠ {region} 无相近地区代理，使用全部代理")
+            filtered_proxies = all_proxies
 
-    logging.info(f"{region} 共收集 {len(filtered_proxies)} 个代理")
+    logging.info(f"{region} 筛选后代理数: {len(filtered_proxies)}")
 
     if not filtered_proxies:
         return []
@@ -271,7 +336,9 @@ def get_proxies(region):
     socks5_proxies = [p for p in filtered_proxies if p.type == "socks5"]
     https_proxies = [p for p in filtered_proxies if p.type == "https"]
 
-    test_proxies = (socks5_proxies[:30] + https_proxies[:30])[:50]
+    # 优化：只测试最终需要数量的2-3倍
+    test_limit = MAX_PROXIES_PER_REGION * 3
+    test_proxies = (socks5_proxies[:test_limit] + https_proxies[:test_limit])[:test_limit * 2]
 
     logging.info(f"{region} 将测试 {len(test_proxies)} 个代理")
 
@@ -289,6 +356,7 @@ def get_proxies(region):
                 pass
 
     if not candidate_proxies:
+        logging.warning(f"⚠ {region} 无可用代理通过测试")
         return []
 
     socks5_list = [p for p in candidate_proxies if p.type == "socks5"]
@@ -304,7 +372,7 @@ def get_proxies(region):
 
     logging.info(f"✓ {region} 最终选出 {len(best_proxies)} 个代理:")
     for i, p in enumerate(best_proxies, 1):
-        logging.info(f"  {i}. {p.host}:{p.port} ({p.type.upper()}) - 延迟:{p.tested_latency or 'N/A'}ms [src:{p.source}]")
+        logging.info(f"  {i}. {p.host}:{p.port} ({p.type.upper()}) - 延迟:{p.tested_latency or 'N/A'}ms [src:{p.source}, country:{p.country_code}]")
 
     return best_proxies
 
@@ -358,8 +426,9 @@ def generate_html(all_nodes, region_results, region_proxies):
         if not nodes:
             continue
 
-        # 获取地区中文名
+        # 获取地区中文名和旗帜
         region_name = REGION_CONFIG.get(region, {}).get("name", region)
+        region_flag = REGION_CONFIG.get(region, {}).get("flag", "")
 
         # IP列表HTML
         ip_items_html = []
@@ -405,7 +474,7 @@ def generate_html(all_nodes, region_results, region_proxies):
         card_html = f"""
         <div class="region-card">
             <div class="region-header">
-                <span>{region_name} ({region})</span>
+                <span>{region_flag} {region_name} ({region})</span>
                 <span class="region-count">{len(nodes)} 节点</span>
             </div>
             <div class="region-body">
@@ -424,6 +493,12 @@ def generate_html(all_nodes, region_results, region_proxies):
 
     # 统计总代理数
     total_proxies = sum(len(proxies) for proxies in region_proxies.values())
+    
+    # 生成动态支持地区列表
+    supported_regions = " | ".join([
+        f"{config.get('name', region)} {config.get('flag', '')}"
+        for region, config in sorted(REGION_CONFIG.items())
+    ])
 
     # 替换模板变量
     html_content = template
@@ -432,6 +507,7 @@ def generate_html(all_nodes, region_results, region_proxies):
     html_content = html_content.replace('{{TOTAL_REGIONS}}', str(len(region_results)))
     html_content = html_content.replace('{{TOTAL_PROXIES}}', str(total_proxies))
     html_content = html_content.replace('{{REGION_CARDS}}', '\n'.join(region_cards_html))
+    html_content = html_content.replace('{{SUPPORTED_REGIONS}}', supported_regions)
 
     # 写入文件
     with open(f"{OUTPUT_DIR}/index.html", "w", encoding="utf-8") as f:
