@@ -38,25 +38,19 @@ def curl_test(ip, proxy=None):
         cmd = ["curl", "-k", "-o", "/dev/null", "-s"]
 
         if proxy:
-            # ⚠️ 修改：支持 Webshare 代理认证
+            # ⚠️ 优化：使用 get_proxy_url() 方法简化代码
             if proxy.type in ['socks5', 'socks4']:
                 # SOCKS5 代理
-                proxy_url = f"{proxy.host}:{proxy.port}"
-                # 如果有认证信息，添加到 URL
                 if proxy.api_result and proxy.api_result.get("username"):
                     username = proxy.api_result["username"]
                     password = proxy.api_result["password"]
-                    proxy_url = f"{username}:{password}@{proxy_url}"
+                    proxy_url = f"{username}:{password}@{proxy.host}:{proxy.port}"
+                else:
+                    proxy_url = f"{proxy.host}:{proxy.port}"
                 cmd.extend(["--socks5", proxy_url])
             else:
-                # HTTPS 代理
-                # 如果有认证信息（Webshare），包含在 URL 中
-                if proxy.api_result and proxy.api_result.get("username"):
-                    username = proxy.api_result["username"]
-                    password = proxy.api_result["password"]
-                    proxy_url = f"http://{username}:{password}@{proxy.host}:{proxy.port}"
-                else:
-                    proxy_url = f"{proxy.type}://{proxy.host}:{proxy.port}"
+                # HTTPS/HTTP 代理 - 使用新方法
+                proxy_url = proxy.get_proxy_url("http")
                 cmd.extend(["-x", proxy_url])
 
         cmd.extend([
@@ -88,21 +82,17 @@ def curl_test(ip, proxy=None):
         hdr_cmd = ["curl", "-k", "-sI"]
 
         if proxy:
-            # ⚠️ 修改：同样支持认证
+            # ⚠️ 优化：同样使用 get_proxy_url() 方法
             if proxy.type in ['socks5', 'socks4']:
-                proxy_url = f"{proxy.host}:{proxy.port}"
                 if proxy.api_result and proxy.api_result.get("username"):
                     username = proxy.api_result["username"]
                     password = proxy.api_result["password"]
-                    proxy_url = f"{username}:{password}@{proxy_url}"
+                    proxy_url = f"{username}:{password}@{proxy.host}:{proxy.port}"
+                else:
+                    proxy_url = f"{proxy.host}:{proxy.port}"
                 hdr_cmd.extend(["--socks5", proxy_url])
             else:
-                if proxy.api_result and proxy.api_result.get("username"):
-                    username = proxy.api_result["username"]
-                    password = proxy.api_result["password"]
-                    proxy_url = f"http://{username}:{password}@{proxy.host}:{proxy.port}"
-                else:
-                    proxy_url = f"{proxy.type}://{proxy.host}:{proxy.port}"
+                proxy_url = proxy.get_proxy_url("http")
                 hdr_cmd.extend(["-x", proxy_url])
 
         hdr_cmd.extend([
