@@ -115,7 +115,7 @@ def run_internal_tests():
 
     sources = [
         ("proxifly",    lambda: fetch_proxifly_proxies(test_region, REGION_TO_COUNTRY_CODE)),
-        ("proxydaily",  lambda: fetch_proxydaily_proxies(test_region, REGION_TO_COUNTRY_CODE, max_pages=1)),
+        ("proxydaily",  lambda: fetch_proxydaily_proxies(test_region, REGION_TO_COUNTRY_CODE)),
         ("tomcat1235",  lambda: fetch_tomcat1235_proxies(test_region)),
         ("monosans", lambda: fetch_monosans_socks5_proxies(test_region)),
     ]
