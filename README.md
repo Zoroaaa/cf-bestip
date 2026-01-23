@@ -1,5 +1,5 @@
 
-Cloudflare 优选 IP 探测与评分工具
+Cloudflare 优选 IP/proxyip 获取工具
 
 项目简介
 
