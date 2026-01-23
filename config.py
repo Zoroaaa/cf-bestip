@@ -47,22 +47,28 @@ PROXY_CHECK_API_URL = "https://prcheck.ittool.pp.ua/check"
 PROXY_CHECK_API_TOKEN = "588wbb"
 
 # ======================
+# 第三方服务 Token
+# ======================
+# 从环境变量读取，如果没有则使用默认值
+WEBSHARE_TOKEN = os.getenv("WEBSHARE_TOKEN", "fd6i0jla6026bmaeavorfjxrbu9dfbz9r5ne4asr")
+
+# ======================
 # 地区配置（完整版）
 # ======================
 
 REGION_CONFIG = {
-    "CA": {"codes": ["CA"], "sample": SAMPLE_SIZE_PER_REGION, "name": "加拿大"},
-    "HK": {"codes": ["HK"], "sample": SAMPLE_SIZE_PER_REGION, "name": "香港"},
-    "DE": {"codes": ["DE"], "sample": SAMPLE_SIZE_PER_REGION, "name": "德国"},
-    "FR": {"codes": ["FR"], "sample": SAMPLE_SIZE_PER_REGION, "name": "法国"},
-    "GB": {"codes": ["GB"], "sample": SAMPLE_SIZE_PER_REGION, "name": "英国"},
-    "IN": {"codes": ["IN"], "sample": SAMPLE_SIZE_PER_REGION, "name": "印度"},
-    "IT": {"codes": ["IT"], "sample": SAMPLE_SIZE_PER_REGION, "name": "意大利"},
-    "JP": {"codes": ["JP"], "sample": SAMPLE_SIZE_PER_REGION, "name": "日本"},
-    "NL": {"codes": ["NL"], "sample": SAMPLE_SIZE_PER_REGION, "name": "荷兰"},
-    "RU": {"codes": ["RU"], "sample": SAMPLE_SIZE_PER_REGION, "name": "俄罗斯"},
-    "US": {"codes": ["US"], "sample": SAMPLE_SIZE_PER_REGION, "name": "美国"},
-    "SG": {"codes": ["SG"], "sample": SAMPLE_SIZE_PER_REGION, "name": "新加坡"},
+    "CA": {"codes": ["CA"], "sample": SAMPLE_SIZE_PER_REGION, "name": "加拿大", "flag": "🇨🇦"},
+    "HK": {"codes": ["HK"], "sample": SAMPLE_SIZE_PER_REGION, "name": "香港", "flag": "🇭🇰"},
+    "DE": {"codes": ["DE"], "sample": SAMPLE_SIZE_PER_REGION, "name": "德国", "flag": "🇩🇪"},
+    "FR": {"codes": ["FR"], "sample": SAMPLE_SIZE_PER_REGION, "name": "法国", "flag": "🇫🇷"},
+    "GB": {"codes": ["GB"], "sample": SAMPLE_SIZE_PER_REGION, "name": "英国", "flag": "🇬🇧"},
+    "IN": {"codes": ["IN"], "sample": SAMPLE_SIZE_PER_REGION, "name": "印度", "flag": "🇮🇳"},
+    "IT": {"codes": ["IT"], "sample": SAMPLE_SIZE_PER_REGION, "name": "意大利", "flag": "🇮🇹"},
+    "JP": {"codes": ["JP"], "sample": SAMPLE_SIZE_PER_REGION, "name": "日本", "flag": "🇯🇵"},
+    "NL": {"codes": ["NL"], "sample": SAMPLE_SIZE_PER_REGION, "name": "荷兰", "flag": "🇳🇱"},
+    "RU": {"codes": ["RU"], "sample": SAMPLE_SIZE_PER_REGION, "name": "俄罗斯", "flag": "🇷🇺"},
+    "US": {"codes": ["US"], "sample": SAMPLE_SIZE_PER_REGION, "name": "美国", "flag": "🇺🇸"},
+    "SG": {"codes": ["SG"], "sample": SAMPLE_SIZE_PER_REGION, "name": "新加坡", "flag": "🇸🇬"},
 }
 
 # ======================
