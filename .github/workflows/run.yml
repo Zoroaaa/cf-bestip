@@ -98,7 +98,8 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           PYTHONDONTWRITEBYTECODE: "1"
-        timeout-minutes: 100
+          WEBSHARE_TOKEN: ${{ secrets.WEBSHARE_TOKEN }}
+        timeout-minutes: 90
 
       - name: Verify output files
         if: github.event.inputs.test_mode != 'true'
@@ -136,10 +137,10 @@ jobs:
             echo "❌ ip_candidates.json 不存在"
           fi
           
-          # 检查 HTML
+          # 检查 HTML (修复 stat 命令)
           if [ -f "public/index.html" ]; then
             echo "✅ index.html 存在"
-            SIZE=$(stat -f%z public/index.html 2>/dev/null || stat -c%s public/index.html)
+            SIZE=$(stat -c%s public/index.html 2>/dev/null || echo "unknown")
             echo "   文件大小: $SIZE bytes"
           else
             echo "❌ index.html 不存在"
@@ -199,8 +200,8 @@ jobs:
             echo "⚠️ HTML 可能缺少代理信息"
           fi
           
-          # 显示 HTML 文件大小
-          SIZE=$(stat -f%z public/index.html 2>/dev/null || stat -c%s public/index.html)
+          # 显示 HTML 文件大小 (修复 stat 命令)
+          SIZE=$(stat -c%s public/index.html 2>/dev/null || echo "unknown")
           echo "📊 HTML 文件大小: $SIZE bytes"
 
       - name: Create .nojekyll
