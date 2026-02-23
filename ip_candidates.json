@@ -1,0 +1,2026 @@
+{
+  "meta": {
+    "generated_at": "2026-02-23T01:34:51.347220Z",
+    "total_nodes": 201,
+    "regions": {
+      "CA": 13,
+      "HK": 23,
+      "DE": 11,
+      "FR": 20,
+      "GB": 17,
+      "IN": 8,
+      "IT": 23,
+      "JP": 28,
+      "NL": 10,
+      "RU": 16,
+      "US": 19,
+      "SG": 13
+    },
+    "version": "2.1-single-domain",
+    "test_domain": "sptest.ittool.pp.ua",
+    "proxy_check_method": "api",
+    "total_proxies": 30
+  },
+  "nodes": [
+    {
+      "ip": "172.67.102.229",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        12
+      ],
+      "score": 0.9434
+    },
+    {
+      "ip": "104.24.169.89",
+      "port": 2053,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        13
+      ],
+      "score": 0.939
+    },
+    {
+      "ip": "104.24.64.97",
+      "port": 2087,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        13
+      ],
+      "score": 0.939
+    },
+    {
+      "ip": "104.19.229.139",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        14
+      ],
+      "score": 0.9346
+    },
+    {
+      "ip": "172.67.99.229",
+      "port": 443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        15
+      ],
+      "score": 0.9302
+    },
+    {
+      "ip": "104.18.115.232",
+      "port": 2053,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        15
+      ],
+      "score": 0.9302
+    },
+    {
+      "ip": "104.16.242.11",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        16
+      ],
+      "score": 0.9259
+    },
+    {
+      "ip": "104.16.36.198",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        16
+      ],
+      "score": 0.9259
+    },
+    {
+      "ip": "104.16.56.150",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        16
+      ],
+      "score": 0.9259
+    },
+    {
+      "ip": "104.16.204.69",
+      "port": 2087,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        16
+      ],
+      "score": 0.9259
+    },
+    {
+      "ip": "104.16.51.59",
+      "port": 2087,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        17
+      ],
+      "score": 0.9217
+    },
+    {
+      "ip": "104.18.91.208",
+      "port": 2087,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        17
+      ],
+      "score": 0.9217
+    },
+    {
+      "ip": "104.16.97.232",
+      "port": 443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        17
+      ],
+      "score": 0.9217
+    },
+    {
+      "ip": "172.64.32.208",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        17
+      ],
+      "score": 0.9217
+    },
+    {
+      "ip": "104.18.59.245",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        18
+      ],
+      "score": 0.9174
+    },
+    {
+      "ip": "162.159.133.53",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        18
+      ],
+      "score": 0.9174
+    },
+    {
+      "ip": "104.25.49.254",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        18
+      ],
+      "score": 0.9174
+    },
+    {
+      "ip": "172.67.209.210",
+      "port": 2053,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        18
+      ],
+      "score": 0.9174
+    },
+    {
+      "ip": "104.17.36.108",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        18
+      ],
+      "score": 0.9174
+    },
+    {
+      "ip": "104.24.188.188",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        18
+      ],
+      "score": 0.9174
+    },
+    {
+      "ip": "104.25.250.168",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        18
+      ],
+      "score": 0.9174
+    },
+    {
+      "ip": "172.64.148.105",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        18
+      ],
+      "score": 0.9174
+    },
+    {
+      "ip": "172.65.169.125",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        19
+      ],
+      "score": 0.9132
+    },
+    {
+      "ip": "104.25.215.175",
+      "port": 2053,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        19
+      ],
+      "score": 0.9132
+    },
+    {
+      "ip": "198.41.215.57",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        19
+      ],
+      "score": 0.9132
+    },
+    {
+      "ip": "104.21.29.208",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        19
+      ],
+      "score": 0.9132
+    },
+    {
+      "ip": "104.17.139.58",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        19
+      ],
+      "score": 0.9132
+    },
+    {
+      "ip": "104.17.100.37",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        20
+      ],
+      "score": 0.9091
+    },
+    {
+      "ip": "104.19.179.132",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        20
+      ],
+      "score": 0.9091
+    },
+    {
+      "ip": "104.25.146.43",
+      "port": 2087,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        20
+      ],
+      "score": 0.9091
+    },
+    {
+      "ip": "162.159.7.215",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        20
+      ],
+      "score": 0.9091
+    },
+    {
+      "ip": "104.17.199.76",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        21
+      ],
+      "score": 0.905
+    },
+    {
+      "ip": "104.21.123.255",
+      "port": 2053,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        21
+      ],
+      "score": 0.905
+    },
+    {
+      "ip": "104.25.143.160",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        21
+      ],
+      "score": 0.905
+    },
+    {
+      "ip": "198.41.204.173",
+      "port": 443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        22
+      ],
+      "score": 0.9009
+    },
+    {
+      "ip": "172.66.135.11",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        22
+      ],
+      "score": 0.9009
+    },
+    {
+      "ip": "104.18.77.189",
+      "port": 2053,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        22
+      ],
+      "score": 0.9009
+    },
+    {
+      "ip": "172.65.209.6",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        22
+      ],
+      "score": 0.9009
+    },
+    {
+      "ip": "104.27.40.161",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        22
+      ],
+      "score": 0.9009
+    },
+    {
+      "ip": "104.21.208.192",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        22
+      ],
+      "score": 0.9009
+    },
+    {
+      "ip": "104.21.74.240",
+      "port": 443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        23
+      ],
+      "score": 0.8969
+    },
+    {
+      "ip": "104.20.12.15",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        23
+      ],
+      "score": 0.8969
+    },
+    {
+      "ip": "104.16.184.203",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        23
+      ],
+      "score": 0.8969
+    },
+    {
+      "ip": "104.17.174.88",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        23
+      ],
+      "score": 0.8969
+    },
+    {
+      "ip": "104.24.230.53",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        23
+      ],
+      "score": 0.8969
+    },
+    {
+      "ip": "162.159.207.62",
+      "port": 2053,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        23
+      ],
+      "score": 0.8969
+    },
+    {
+      "ip": "104.25.206.62",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        24
+      ],
+      "score": 0.8929
+    },
+    {
+      "ip": "104.17.216.47",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        24
+      ],
+      "score": 0.8929
+    },
+    {
+      "ip": "104.18.52.206",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        25
+      ],
+      "score": 0.8889
+    },
+    {
+      "ip": "172.67.118.177",
+      "port": 2087,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        25
+      ],
+      "score": 0.8889
+    },
+    {
+      "ip": "172.64.94.194",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        26
+      ],
+      "score": 0.885
+    },
+    {
+      "ip": "104.17.188.202",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        26
+      ],
+      "score": 0.885
+    },
+    {
+      "ip": "104.27.31.132",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        26
+      ],
+      "score": 0.885
+    },
+    {
+      "ip": "104.18.207.121",
+      "port": 2087,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        26
+      ],
+      "score": 0.885
+    },
+    {
+      "ip": "104.18.196.18",
+      "port": 2087,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        27
+      ],
+      "score": 0.8811
+    },
+    {
+      "ip": "172.67.200.140",
+      "port": 2053,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        27
+      ],
+      "score": 0.8811
+    },
+    {
+      "ip": "104.27.99.93",
+      "port": 2083,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        27
+      ],
+      "score": 0.8811
+    },
+    {
+      "ip": "104.18.200.94",
+      "port": 8443,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        28
+      ],
+      "score": 0.8772
+    },
+    {
+      "ip": "104.18.92.166",
+      "port": 2096,
+      "region": "US",
+      "colo": "ORD",
+      "latencies": [
+        35
+      ],
+      "score": 0.8511
+    },
+    {
+      "ip": "104.21.73.214",
+      "port": 2083,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        87
+      ],
+      "score": 0.6969
+    },
+    {
+      "ip": "104.24.185.159",
+      "port": 443,
+      "region": "UNMAPPED",
+      "colo": "BUF",
+      "latencies": [
+        89
+      ],
+      "score": 0.692
+    },
+    {
+      "ip": "104.21.4.172",
+      "port": 2053,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        89
+      ],
+      "score": 0.692
+    },
+    {
+      "ip": "104.18.184.72",
+      "port": 443,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        100
+      ],
+      "score": 0.6667
+    },
+    {
+      "ip": "172.64.147.112",
+      "port": 2083,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        104
+      ],
+      "score": 0.6579
+    },
+    {
+      "ip": "104.16.161.157",
+      "port": 443,
+      "region": "US",
+      "colo": "EWR",
+      "latencies": [
+        110
+      ],
+      "score": 0.6452
+    },
+    {
+      "ip": "104.17.170.145",
+      "port": 443,
+      "region": "US",
+      "colo": "EWR",
+      "latencies": [
+        110
+      ],
+      "score": 0.6452
+    },
+    {
+      "ip": "104.17.73.246",
+      "port": 8443,
+      "region": "US",
+      "colo": "EWR",
+      "latencies": [
+        111
+      ],
+      "score": 0.6431
+    },
+    {
+      "ip": "104.17.196.138",
+      "port": 8443,
+      "region": "US",
+      "colo": "EWR",
+      "latencies": [
+        113
+      ],
+      "score": 0.639
+    },
+    {
+      "ip": "172.64.83.150",
+      "port": 2096,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        115
+      ],
+      "score": 0.6349
+    },
+    {
+      "ip": "104.19.223.152",
+      "port": 2083,
+      "region": "US",
+      "colo": "EWR",
+      "latencies": [
+        116
+      ],
+      "score": 0.6329
+    },
+    {
+      "ip": "172.67.221.198",
+      "port": 2096,
+      "region": "US",
+      "colo": "EWR",
+      "latencies": [
+        124
+      ],
+      "score": 0.6173
+    },
+    {
+      "ip": "104.17.213.45",
+      "port": 443,
+      "region": "UNMAPPED",
+      "colo": "BUF",
+      "latencies": [
+        130
+      ],
+      "score": 0.6061
+    },
+    {
+      "ip": "104.19.102.244",
+      "port": 443,
+      "region": "UNMAPPED",
+      "colo": "BUF",
+      "latencies": [
+        130
+      ],
+      "score": 0.6061
+    },
+    {
+      "ip": "172.67.67.99",
+      "port": 8443,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        134
+      ],
+      "score": 0.5988
+    },
+    {
+      "ip": "104.25.19.24",
+      "port": 2053,
+      "region": "UNMAPPED",
+      "colo": "BUF",
+      "latencies": [
+        143
+      ],
+      "score": 0.5831
+    },
+    {
+      "ip": "104.16.126.183",
+      "port": 2053,
+      "region": "UNMAPPED",
+      "colo": "BUF",
+      "latencies": [
+        143
+      ],
+      "score": 0.5831
+    },
+    {
+      "ip": "172.67.175.146",
+      "port": 8443,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        144
+      ],
+      "score": 0.5814
+    },
+    {
+      "ip": "172.66.159.152",
+      "port": 2053,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        147
+      ],
+      "score": 0.5764
+    },
+    {
+      "ip": "104.16.56.181",
+      "port": 2083,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        156
+      ],
+      "score": 0.5618
+    },
+    {
+      "ip": "104.18.51.173",
+      "port": 443,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        156
+      ],
+      "score": 0.5618
+    },
+    {
+      "ip": "104.25.181.19",
+      "port": 2096,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        158
+      ],
+      "score": 0.5587
+    },
+    {
+      "ip": "104.25.108.152",
+      "port": 2087,
+      "region": "UNMAPPED",
+      "colo": "BUF",
+      "latencies": [
+        158
+      ],
+      "score": 0.5587
+    },
+    {
+      "ip": "104.18.52.16",
+      "port": 2087,
+      "region": "CA",
+      "colo": "YYZ",
+      "latencies": [
+        160
+      ],
+      "score": 0.5556
+    },
+    {
+      "ip": "172.64.77.104",
+      "port": 2053,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        253
+      ],
+      "score": 0.4415
+    },
+    {
+      "ip": "104.25.204.223",
+      "port": 2083,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        253
+      ],
+      "score": 0.4415
+    },
+    {
+      "ip": "104.17.126.29",
+      "port": 8443,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        254
+      ],
+      "score": 0.4405
+    },
+    {
+      "ip": "104.24.89.62",
+      "port": 2096,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        254
+      ],
+      "score": 0.4405
+    },
+    {
+      "ip": "104.16.73.30",
+      "port": 2096,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        255
+      ],
+      "score": 0.4396
+    },
+    {
+      "ip": "104.27.18.197",
+      "port": 8443,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        256
+      ],
+      "score": 0.4386
+    },
+    {
+      "ip": "172.67.128.44",
+      "port": 8443,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        266
+      ],
+      "score": 0.4292
+    },
+    {
+      "ip": "104.17.13.169",
+      "port": 2096,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        267
+      ],
+      "score": 0.4283
+    },
+    {
+      "ip": "104.27.109.45",
+      "port": 8443,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        268
+      ],
+      "score": 0.4274
+    },
+    {
+      "ip": "172.66.173.55",
+      "port": 8443,
+      "region": "US",
+      "colo": "LAX",
+      "latencies": [
+        268
+      ],
+      "score": 0.4274
+    },
+    {
+      "ip": "172.64.230.153",
+      "port": 8443,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        552
+      ],
+      "score": 0.266
+    },
+    {
+      "ip": "104.17.67.81",
+      "port": 2053,
+      "region": "US",
+      "colo": "DFW",
+      "latencies": [
+        558
+      ],
+      "score": 0.2639
+    },
+    {
+      "ip": "104.19.59.212",
+      "port": 443,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        595
+      ],
+      "score": 0.2516
+    },
+    {
+      "ip": "104.16.65.42",
+      "port": 2096,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        610
+      ],
+      "score": 0.2469
+    },
+    {
+      "ip": "172.64.69.162",
+      "port": 2096,
+      "region": "FR",
+      "colo": "CDG",
+      "latencies": [
+        611
+      ],
+      "score": 0.2466
+    },
+    {
+      "ip": "104.27.200.250",
+      "port": 2083,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        613
+      ],
+      "score": 0.246
+    },
+    {
+      "ip": "104.16.90.76",
+      "port": 2053,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        614
+      ],
+      "score": 0.2457
+    },
+    {
+      "ip": "104.16.0.224",
+      "port": 2053,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        624
+      ],
+      "score": 0.2427
+    },
+    {
+      "ip": "172.67.67.28",
+      "port": 2087,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        629
+      ],
+      "score": 0.2413
+    },
+    {
+      "ip": "172.64.147.183",
+      "port": 8443,
+      "region": "SE",
+      "colo": "ARN",
+      "latencies": [
+        635
+      ],
+      "score": 0.2395
+    },
+    {
+      "ip": "104.16.104.13",
+      "port": 443,
+      "region": "FR",
+      "colo": "CDG",
+      "latencies": [
+        637
+      ],
+      "score": 0.2389
+    },
+    {
+      "ip": "104.18.83.228",
+      "port": 443,
+      "region": "FR",
+      "colo": "CDG",
+      "latencies": [
+        644
+      ],
+      "score": 0.237
+    },
+    {
+      "ip": "104.16.244.231",
+      "port": 2083,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        650
+      ],
+      "score": 0.2353
+    },
+    {
+      "ip": "104.17.201.10",
+      "port": 2087,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        660
+      ],
+      "score": 0.2326
+    },
+    {
+      "ip": "104.18.18.108",
+      "port": 2087,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        661
+      ],
+      "score": 0.2323
+    },
+    {
+      "ip": "172.67.210.42",
+      "port": 2053,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        662
+      ],
+      "score": 0.232
+    },
+    {
+      "ip": "104.21.198.99",
+      "port": 443,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        663
+      ],
+      "score": 0.2317
+    },
+    {
+      "ip": "162.159.22.192",
+      "port": 8443,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        664
+      ],
+      "score": 0.2315
+    },
+    {
+      "ip": "104.21.99.62",
+      "port": 2083,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        665
+      ],
+      "score": 0.2312
+    },
+    {
+      "ip": "172.67.166.27",
+      "port": 2053,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        666
+      ],
+      "score": 0.2309
+    },
+    {
+      "ip": "172.67.215.80",
+      "port": 8443,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        667
+      ],
+      "score": 0.2307
+    },
+    {
+      "ip": "104.16.150.100",
+      "port": 2096,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        669
+      ],
+      "score": 0.2301
+    },
+    {
+      "ip": "104.17.88.197",
+      "port": 8443,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        669
+      ],
+      "score": 0.2301
+    },
+    {
+      "ip": "104.27.49.170",
+      "port": 2083,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        669
+      ],
+      "score": 0.2301
+    },
+    {
+      "ip": "104.17.50.124",
+      "port": 2053,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        672
+      ],
+      "score": 0.2294
+    },
+    {
+      "ip": "104.17.43.238",
+      "port": 2083,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        672
+      ],
+      "score": 0.2294
+    },
+    {
+      "ip": "104.25.192.246",
+      "port": 8443,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        679
+      ],
+      "score": 0.2275
+    },
+    {
+      "ip": "104.18.77.13",
+      "port": 2096,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        686
+      ],
+      "score": 0.2257
+    },
+    {
+      "ip": "104.18.217.72",
+      "port": 2087,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        690
+      ],
+      "score": 0.2247
+    },
+    {
+      "ip": "104.18.146.19",
+      "port": 2053,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        707
+      ],
+      "score": 0.2205
+    },
+    {
+      "ip": "104.25.165.45",
+      "port": 2096,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        711
+      ],
+      "score": 0.2195
+    },
+    {
+      "ip": "104.19.33.238",
+      "port": 2096,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        713
+      ],
+      "score": 0.2191
+    },
+    {
+      "ip": "104.18.205.118",
+      "port": 2096,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        715
+      ],
+      "score": 0.2186
+    },
+    {
+      "ip": "172.64.187.178",
+      "port": 2053,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        720
+      ],
+      "score": 0.2174
+    },
+    {
+      "ip": "104.24.33.118",
+      "port": 2087,
+      "region": "DE",
+      "colo": "FRA",
+      "latencies": [
+        757
+      ],
+      "score": 0.209
+    },
+    {
+      "ip": "104.16.108.62",
+      "port": 2083,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        813
+      ],
+      "score": 0.1974
+    },
+    {
+      "ip": "104.27.59.153",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        820
+      ],
+      "score": 0.1961
+    },
+    {
+      "ip": "104.25.6.226",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        822
+      ],
+      "score": 0.1957
+    },
+    {
+      "ip": "104.17.117.95",
+      "port": 2083,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        824
+      ],
+      "score": 0.1953
+    },
+    {
+      "ip": "104.16.242.39",
+      "port": 2053,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        825
+      ],
+      "score": 0.1951
+    },
+    {
+      "ip": "104.20.5.51",
+      "port": 443,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        825
+      ],
+      "score": 0.1951
+    },
+    {
+      "ip": "162.159.133.190",
+      "port": 2083,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        833
+      ],
+      "score": 0.1936
+    },
+    {
+      "ip": "104.24.229.129",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        834
+      ],
+      "score": 0.1934
+    },
+    {
+      "ip": "172.66.157.204",
+      "port": 2083,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        835
+      ],
+      "score": 0.1932
+    },
+    {
+      "ip": "104.21.77.164",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        835
+      ],
+      "score": 0.1932
+    },
+    {
+      "ip": "104.21.222.19",
+      "port": 8443,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        835
+      ],
+      "score": 0.1932
+    },
+    {
+      "ip": "104.27.122.27",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        836
+      ],
+      "score": 0.1931
+    },
+    {
+      "ip": "104.16.99.126",
+      "port": 2053,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        836
+      ],
+      "score": 0.1931
+    },
+    {
+      "ip": "173.245.59.33",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        836
+      ],
+      "score": 0.1931
+    },
+    {
+      "ip": "104.21.75.135",
+      "port": 443,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        837
+      ],
+      "score": 0.1929
+    },
+    {
+      "ip": "104.21.15.147",
+      "port": 2053,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        837
+      ],
+      "score": 0.1929
+    },
+    {
+      "ip": "104.25.75.197",
+      "port": 2096,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        838
+      ],
+      "score": 0.1927
+    },
+    {
+      "ip": "104.20.5.242",
+      "port": 443,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        839
+      ],
+      "score": 0.1925
+    },
+    {
+      "ip": "104.21.216.20",
+      "port": 2096,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        839
+      ],
+      "score": 0.1925
+    },
+    {
+      "ip": "104.24.8.87",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        840
+      ],
+      "score": 0.1923
+    },
+    {
+      "ip": "104.21.87.17",
+      "port": 443,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        841
+      ],
+      "score": 0.1921
+    },
+    {
+      "ip": "104.27.46.161",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        841
+      ],
+      "score": 0.1921
+    },
+    {
+      "ip": "104.19.180.162",
+      "port": 2053,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        841
+      ],
+      "score": 0.1921
+    },
+    {
+      "ip": "104.19.254.114",
+      "port": 2096,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        842
+      ],
+      "score": 0.1919
+    },
+    {
+      "ip": "104.18.231.147",
+      "port": 2053,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        847
+      ],
+      "score": 0.191
+    },
+    {
+      "ip": "172.67.152.109",
+      "port": 2096,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        847
+      ],
+      "score": 0.191
+    },
+    {
+      "ip": "104.24.81.177",
+      "port": 2053,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        848
+      ],
+      "score": 0.1908
+    },
+    {
+      "ip": "172.67.198.60",
+      "port": 2053,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        850
+      ],
+      "score": 0.1905
+    },
+    {
+      "ip": "104.24.82.90",
+      "port": 2096,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        851
+      ],
+      "score": 0.1903
+    },
+    {
+      "ip": "104.27.66.174",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        855
+      ],
+      "score": 0.1896
+    },
+    {
+      "ip": "104.19.157.115",
+      "port": 8443,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        858
+      ],
+      "score": 0.189
+    },
+    {
+      "ip": "172.65.36.156",
+      "port": 2083,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        858
+      ],
+      "score": 0.189
+    },
+    {
+      "ip": "104.18.82.108",
+      "port": 2087,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        858
+      ],
+      "score": 0.189
+    },
+    {
+      "ip": "104.25.86.206",
+      "port": 2096,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        859
+      ],
+      "score": 0.1889
+    },
+    {
+      "ip": "104.17.198.216",
+      "port": 443,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        861
+      ],
+      "score": 0.1885
+    },
+    {
+      "ip": "104.18.239.201",
+      "port": 2053,
+      "region": "KR",
+      "colo": "ICN",
+      "latencies": [
+        863
+      ],
+      "score": 0.1881
+    },
+    {
+      "ip": "104.16.16.230",
+      "port": 2053,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        916
+      ],
+      "score": 0.1792
+    },
+    {
+      "ip": "104.25.190.63",
+      "port": 2083,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        926
+      ],
+      "score": 0.1776
+    },
+    {
+      "ip": "104.27.203.224",
+      "port": 2096,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        927
+      ],
+      "score": 0.1775
+    },
+    {
+      "ip": "104.17.211.34",
+      "port": 443,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        927
+      ],
+      "score": 0.1775
+    },
+    {
+      "ip": "172.67.95.255",
+      "port": 2083,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        929
+      ],
+      "score": 0.1771
+    },
+    {
+      "ip": "172.66.209.169",
+      "port": 2053,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        938
+      ],
+      "score": 0.1757
+    },
+    {
+      "ip": "104.24.240.74",
+      "port": 443,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        938
+      ],
+      "score": 0.1757
+    },
+    {
+      "ip": "104.19.23.24",
+      "port": 443,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        939
+      ],
+      "score": 0.1756
+    },
+    {
+      "ip": "104.25.47.13",
+      "port": 2083,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        941
+      ],
+      "score": 0.1753
+    },
+    {
+      "ip": "104.19.12.251",
+      "port": 2096,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        941
+      ],
+      "score": 0.1753
+    },
+    {
+      "ip": "162.159.232.192",
+      "port": 2053,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        942
+      ],
+      "score": 0.1751
+    },
+    {
+      "ip": "104.24.150.80",
+      "port": 2083,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        952
+      ],
+      "score": 0.1736
+    },
+    {
+      "ip": "104.21.55.104",
+      "port": 443,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        954
+      ],
+      "score": 0.1733
+    },
+    {
+      "ip": "104.16.173.17",
+      "port": 2096,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        954
+      ],
+      "score": 0.1733
+    },
+    {
+      "ip": "104.24.198.117",
+      "port": 2053,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        955
+      ],
+      "score": 0.1732
+    },
+    {
+      "ip": "104.27.195.136",
+      "port": 2087,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        957
+      ],
+      "score": 0.1729
+    },
+    {
+      "ip": "104.20.38.100",
+      "port": 2087,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        962
+      ],
+      "score": 0.1721
+    },
+    {
+      "ip": "172.67.178.164",
+      "port": 2053,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        963
+      ],
+      "score": 0.172
+    },
+    {
+      "ip": "172.66.165.44",
+      "port": 2087,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        964
+      ],
+      "score": 0.1718
+    },
+    {
+      "ip": "198.41.223.134",
+      "port": 2053,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        965
+      ],
+      "score": 0.1717
+    },
+    {
+      "ip": "104.19.81.131",
+      "port": 2096,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        966
+      ],
+      "score": 0.1715
+    },
+    {
+      "ip": "104.17.7.153",
+      "port": 2087,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        970
+      ],
+      "score": 0.1709
+    },
+    {
+      "ip": "104.24.67.77",
+      "port": 2083,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        971
+      ],
+      "score": 0.1708
+    },
+    {
+      "ip": "104.25.4.241",
+      "port": 8443,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        971
+      ],
+      "score": 0.1708
+    },
+    {
+      "ip": "104.27.62.113",
+      "port": 2096,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        973
+      ],
+      "score": 0.1705
+    },
+    {
+      "ip": "104.16.169.180",
+      "port": 2083,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        978
+      ],
+      "score": 0.1698
+    },
+    {
+      "ip": "104.16.207.105",
+      "port": 2083,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        980
+      ],
+      "score": 0.1695
+    },
+    {
+      "ip": "162.159.61.43",
+      "port": 2053,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        980
+      ],
+      "score": 0.1695
+    },
+    {
+      "ip": "104.27.7.161",
+      "port": 2053,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        982
+      ],
+      "score": 0.1692
+    },
+    {
+      "ip": "104.24.211.96",
+      "port": 443,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        995
+      ],
+      "score": 0.1674
+    },
+    {
+      "ip": "104.18.194.53",
+      "port": 443,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        996
+      ],
+      "score": 0.1672
+    },
+    {
+      "ip": "104.16.154.139",
+      "port": 2087,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        997
+      ],
+      "score": 0.1671
+    },
+    {
+      "ip": "162.159.231.94",
+      "port": 2083,
+      "region": "US",
+      "colo": "ATL",
+      "latencies": [
+        998
+      ],
+      "score": 0.1669
+    },
+    {
+      "ip": "162.159.19.50",
+      "port": 8443,
+      "region": "HK",
+      "colo": "HKG",
+      "latencies": [
+        1002
+      ],
+      "score": 0.1664
+    },
+    {
+      "ip": "104.19.171.251",
+      "port": 2053,
+      "region": "US",
+      "colo": "ATL",
+      "latencies": [
+        1124
+      ],
+      "score": 0.1511
+    },
+    {
+      "ip": "104.16.249.166",
+      "port": 2087,
+      "region": "US",
+      "colo": "ATL",
+      "latencies": [
+        1137
+      ],
+      "score": 0.1496
+    }
+  ]
+}
