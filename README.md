@@ -11,7 +11,6 @@
 
 </div>
 
-ps：config.py里的TRACE_DOMAIN、PROXY_CHECK_API_URL已被我关闭，fork项目后需自行更改地址进行使用
 ## 🔗 快速访问
 
 <div align="center">
@@ -217,11 +216,11 @@ MAX_OUTPUT_PER_REGION = 6        # 每地区最多输出 IP 数
 MAX_PROXIES_PER_REGION = 6       # 每地区最多输出代理数
 
 # 代理检测 API
-PROXY_CHECK_API_URL = "https://prcheck.ittool.pp.ua/check"
+PROXY_CHECK_API_URL = "xxx/check"
 PROXY_CHECK_API_TOKEN = "your_token_here"
 
 # 测试域名
-TRACE_DOMAIN = "sptest.ittool.pp.ua"
+TRACE_DOMAIN = "xxx"
 
 # Cloudflare 端口
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
