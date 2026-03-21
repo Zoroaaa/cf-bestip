@@ -19,7 +19,7 @@ DATA_DIR = os.path.join(OUTPUT_DIR, "data")
 # ======================
 CF_IPS_V4_URL = "https://www.cloudflare.com/ips-v4"
 
-TRACE_DOMAIN = "sptest.ittool.pp.ua"
+TRACE_DOMAIN = "xxx"
 
 HTTPS_PORTS = [443, 8443, 2053, 2083, 2087, 2096]
 
@@ -43,8 +43,8 @@ MAX_PROXIES_PER_REGION = 6
 # ======================
 # 代理检测 API
 # ======================
-PROXY_CHECK_API_URL = "https://prcheck.ittool.pp.ua/check"
-PROXY_CHECK_API_TOKEN = "588wbb"
+PROXY_CHECK_API_URL = "xxx"
+PROXY_CHECK_API_TOKEN = "xxx"
 
 # ======================
 # 地区配置（完整版）
