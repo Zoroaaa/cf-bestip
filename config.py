@@ -4,7 +4,7 @@
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 import logging
 
@@ -220,7 +220,7 @@ LOG_LEVEL = "INFO"
 
 
 def get_generated_time():
-    return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+    return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
 def fetch_cf_ipv4_cidrs():
     """统一获取 Cloudflare IPv4 CIDR"""
