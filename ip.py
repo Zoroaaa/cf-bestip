@@ -9,7 +9,7 @@ import time
 import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import *
 from proxy_sources import (
@@ -643,7 +643,7 @@ def main():
     with open(f"{OUTPUT_DIR}/ip_candidates.json", "w", encoding="utf-8") as f:
         json.dump({
             "meta": {
-                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
                 "total_nodes": len(all_nodes),
                 "regions": {r: len(nodes) for r, nodes in region_results.items()},
                 "version": "2.1-single-domain",
